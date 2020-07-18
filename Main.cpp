@@ -57,7 +57,7 @@ u64 NextBytes(u8*& buffer, u8 numBytes){
 
 	// only works on little endian machine
 	u64 value = *(u64*)buffer;
-	u64 mask = 1ULL << (numBytes * 8);
+	u64 mask = (1ULL << (numBytes * 8)) - 1;
 
 	buffer += numBytes;
 	u64 result = value & mask; 
@@ -66,19 +66,6 @@ u64 NextBytes(u8*& buffer, u8 numBytes){
 
 
 int main() {
-
-	FILE* out_file = fopen("../endianness.txt", "wb");
-	int y = 0x1;
-	fwrite(&y, 4, 1, out_file);
-	fclose(out_file);
-
-	u64 size;
-	u8* in_file = OpenFile("../endianness.txt", &size);
-	for(int i = 0; i < size; i++){
-		u8 x = *(in_file + i);
-	}
-
-	return 1;
 
 
 	u64 size1;
@@ -93,112 +80,140 @@ int main() {
 
 	int i = 0;
 	u8* s_buffer = buffer2;
+
+	u16 SOI = NextBytes(s_buffer, 2);
+	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
+
 	while(s_buffer - buffer2 < size2) {
-		if(*s_buffer == 0xFF){
-			s_buffer++;
-			u8 seg = *(s_buffer);
-			s_buffer++;
-			switch(seg){
-				case 0xD8:
-					if(!imageStarted){
-						printf("Start Of Image\n");
-						imageStarted = true;
-					}
-					break;
-				case 0xC0:
-					printf("Start Of Frame (baseline DCT)\n");
-					break;
-				case 0xC2:
-					printf("Start Of Frame (progressive DCT)\n");
-					break;
-				case 0xC4:
-					printf("Define Huffman Table(s)\n");
-					break;
-				case 0xDB:
-					printf("Define Quantization Tables\n");
-					break;
-				case 0xDD:
-					printf("Define Restart Interval\n");
-					break;
-				case 0xDA:
-					printf("Start Of Scan\n");
-					break;
-				// case 0xDn:
-				// 	printf("0xDn\n");
-				// 	break;
-				// case 0xEn:
-				// 	printf("0xEn\n");
-				// 	break;
-				case 0xFE:
-					printf("Comment\n");
-					break;
-				case 0xD9:
-					printf("End Of Image\n");
-					break;
-				case 0xE1:{
-					u32 size = *(u16*)(s_buffer) - 4;	// size minus (JPEG SOI + APPDATA1) MARKER SIZE = 4 
-					s_buffer+=2;
-					printf("Metadata Segment Size: %d\n", size);
+		ASSERT(NextBytes(s_buffer, 1) == 0xFF)
+		u16 segment = NextBytes(s_buffer, 1);
+		switch(segment){
+			//case 0xD8:
+			//	if(!imageStarted){
+			//		printf("Start Of Image\n");
+			//		imageStarted = true;
+			//	}
+			//	break;
+			//case 0xC0:
+			//	printf("Start Of Frame (baseline DCT)\n");
+			//	break;
+			//case 0xC2:
+			//	printf("Start Of Frame (progressive DCT)\n");
+			//	break;
+			//case 0xC4:
+			//	printf("Define Huffman Table(s)\n");
+			//	break;
+			//case 0xDB:
+			//	printf("Define Quantization Tables\n");
+			//	break;
+			//case 0xDD:
+			//	printf("Define Restart Interval\n");
+			//	break;
+			//case 0xDA:
+			//	printf("Start Of Scan\n");
+			//	break;
+			//// case 0xDn:
+			//// 	printf("0xDn\n");
+			//// 	break;
+			//// case 0xEn:
+			//// 	printf("0xEn\n");
+			//// 	break;
+			//case 0xFE:
+			//	printf("Comment\n");
+			//	break;
+			//case 0xD9:
+			//	printf("End Of Image\n");
+			//	break;
+			case 0xE1:{
+				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
+				u16 length = _byteswap_ushort(NextBytes(s_buffer, 2));
+				length -= 4;
+				printf("Metadata Segment Size: %d\n", length);
 
-
-					// If Exif
-					ASSERT(strcmp((const char*)NextBytes(s_buffer, 4), "Exif") == 0); // next two bytes should be null so strcmp should work with s_buffer
-					// skip two null bytes
-					ASSERT(*(u16*)NextBytes(s_buffer, 2) == 0x0);
+				// If Exif
+				ASSERT(strcmp((const char*)s_buffer, "Exif") == 0); // next two bytes should be null so strcmp should work with s_buffer
+				s_buffer += 4;
+				// skip two null bytes
+				ASSERT(NextBytes(s_buffer, 2) == 0x0);
 					
-					// Tiff Header
-					// Bytes 0-1: The byte order used within the file. Legal values are:“II”(4949.H)“MM” (4D4D.H).
-					// u16 byte_order = *(u16*)s_buffer;
-					// s_buffer += 2;
-					u16 byte_order = NextBytes(s_buffer, 2);
+				// Tiff Image File Header
+				struct TIFHEAD {
+					u16 ByteOrderIdentifier; /* Byte-order Identifier */
+					u16 Version; /* TIFF version number (always 2Ah) */
+					u32 IFDOffset; /* Offset of the first Image File Directory*/
+				};
+				TIFHEAD* tiff_header = (TIFHEAD*)s_buffer;
+				s_buffer += sizeof(TIFHEAD);
+				// Bytes 0-1: The byte order used within the file. Legal values are:“II”(4949.H)“MM” (4D4D.H).
+				// u8* tiffStart = s_buffer; 
+				// NOTE: currently only supporting big endian storage
+				ASSERT(tiff_header->ByteOrderIdentifier == 0x4D4D);	// TODO: support little endian format
+				ASSERT(tiff_header->Version == 0x2A00);	// signature is 0x2A, in little endian machine read 0x2A00 or swap bytes
+				// NOTE: 0th IFD offset migh this might not always be 0x08
+				ASSERT(tiff_header->IFDOffset == 0x08000000); // in little endian swap bytes or read 0x80000000
+				// u8* ifd = tiffStart + 8;
 
-					ASSERT(byte_order == 0x4D4D || byte_order == 0x4949);
-					if(byte_order == 0x4D4D){
-						// Big Endian
-						u16 signature = *(u16*)NextBytes(s_buffer, 2);
-						ASSERT(_byteswap_ushort(signature) == 42);
+				// Reading an Image File Directory 
+				struct TIFTAG {
+					u16 TagId; /* The tag identifier */
+					u16 DataType; /* The scalar type of the data items */
+					u32 DataCount; /* The number of items in the tag data */
+					u32 DataOffset; /* The byte offset to the data items */
+				};
+				struct TIFIFD {
+					u16 NumDirEntries; /* Number of Tags in IFD */
+					TIFTAG* TagList; /* Array of Tags (NumDirEntries number of them) */
+					u32 NextIFDOffset; /* Offset to next IFD */
+				};
+				TIFIFD ifd = {};
+				ifd.NumDirEntries = _byteswap_ushort(NextBytes(s_buffer, 2));
+				ifd.TagList = (TIFTAG*)s_buffer;
+				s_buffer += (sizeof(TIFTAG) * ifd.NumDirEntries);	// skip TIFTAGS
+				ifd.NextIFDOffset = _byteswap_ulong(NextBytes(s_buffer, 4));
+				ASSERT(false);
 
-						ASSERT(_byteswap_ulong(*(u32*)NextBytes(s_buffer, 4)) == 0x80);
+#define SWAP_STRUCT_ENTRY(entry, mode) entry = _byteswap_##mode(entry); 
 
-						u32 IFD0 = _byteswap_ulong(*(u32*)NextBytes(s_buffer, 4));	// main image
+				for(int i = 0; i < ifd.NumDirEntries; i++){
+					TIFTAG* entry = (ifd.TagList + i);
+					SWAP_STRUCT_ENTRY(entry->TagId, ushort);
+					SWAP_STRUCT_ENTRY(entry->DataType, ushort);
+					SWAP_STRUCT_ENTRY(entry->DataCount, ulong);
+					SWAP_STRUCT_ENTRY(entry->DataOffset, ulong);
 
-						u64 IFD1_link = _byteswap_uint64(*(u64*)NextBytes(s_buffer, 8));		// link to ifd1
-
-						u64 data_area_IDF0 = _byteswap_uint64(NextBytes(s_buffer, 8));
-
-						ASSERT(false);
-
-						u32 ifd_offset = _byteswap_ulong(*(u32*)s_buffer);
-						s_buffer += 4;
-
-						u16 numDirEntries = _byteswap_ushort(*(u16*)s_buffer);
-						s_buffer += 2;
-						ASSERT(numDirEntries);	// must have alteast one entry
-						
-						for(int i = 0; i < numDirEntries; i++){
-							struct IFDEntry {
-								u16 tag;
-								u16 fieldType;
-								u32 count;
-								u32 valueOffset;
-							};
-							IFDEntry* entry = (IFDEntry*)s_buffer;
-							ASSERT(entry->valueOffset < size2);
-							s_buffer += sizeof(IFDEntry);
-						}
-					}else {
-						// Little Endian
-						ASSERT(false);
-					}
-
-					// u32 second = *(u32*)s_buffer;
-					// s_buffer += 4;
-					break;
+					ASSERT(entry->DataType > 0 && entry->DataType <= 5)		// NOTE: with TIFF 6.0 can go upto 12
+					ASSERT(entry->DataOffset < size2);
 				}
-				default:
-					// ASSERT_LOG(false, "Unknown Segment: 0x%x At Index %d\n", seg, i);
-					break;
+
+				// Next IFD
+				u32 nextIFD = _byteswap_ulong(NextBytes(s_buffer, 4));
+
+				ASSERT(false);
+
+				u32 IFD0 = _byteswap_ulong(NextBytes(s_buffer, 4));	// main image
+
+				u64 IFD1_link = _byteswap_ulong(NextBytes(s_buffer, 8));		// link to ifd1
+
+				u64 data_area_IDF0 = _byteswap_ulong(NextBytes(s_buffer, 8));
+
+				ASSERT(false);
+
+				u32 ifd_offset = _byteswap_ulong(NextBytes(s_buffer, 4));
+				s_buffer += 4;
+
+				u16 numDirEntries = _byteswap_ulong(NextBytes(s_buffer, 2));
+				s_buffer += 2;
+				ASSERT(numDirEntries);	// must have alteast one entry
+
+
+				// u32 second = *(u32*)s_buffer;
+				// s_buffer += 4;
+				break;
 			}
+			default:
+				ASSERT(false);
+				// ASSERT_LOG(false, "Unknown Segment: 0x%x At Index %d\n", seg, i);
+				break;
 		}
 	}
 

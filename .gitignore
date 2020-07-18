@@ -1,0 +1,8 @@
+# Directories
+.vscode/
+.vs/
+bin/
+
+# Files
+example[0-9]*.jpg
+run_code.bat

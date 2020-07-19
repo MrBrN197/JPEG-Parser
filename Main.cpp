@@ -677,7 +677,7 @@ int main() {
 				// NOTE: currently only supporting big endian storage
 				ASSERT(tiff_header->ByteOrderIdentifier == 0x4D4D);	// TODO: support little endian format
 				ASSERT(tiff_header->Version == 0x2A00);	// signature is 0x2A, in little endian machine read 0x2A00 or swap bytes
-				// NOTE: 0th IFD offset migh this might not always be 0x08
+				// TODO: 0th IFD offset migh this might not always be 0x08
 				ASSERT(tiff_header->IFDOffset == 0x08000000); // in little endian swap bytes or read 0x80000000
 				// u8* ifd = tiffHeaderStart + 8;
 
@@ -703,7 +703,7 @@ int main() {
 					s_buffer += (sizeof(TIFTAG) * ifd.NumDirEntries);	// skip TIFTAGS
 					ifd.NextIFDOffset = _byteswap_ulong(NextBytes(s_buffer, 4));
 
-	#define SWAP_STRUCT_ENTRY(entry, mode) entry = _byteswap_##mode(entry); 
+#define SWAP_STRUCT_ENTRY(entry, mode) entry = _byteswap_##mode(entry); 
 
 					for(int i = 0; i < ifd.NumDirEntries; i++){
 						TIFTAG* entry = (ifd.TagList + i);
@@ -717,7 +717,7 @@ int main() {
 						u32 data_size = GetByteSizeFromCountAndType(entry->DataCount, entry->DataType);
 
 						u8* data = (tiff_header_location + entry->DataOffset);
-						// NOTE: if DataOffset is <= 4 bytes data maybe in this field, handle this case
+						// NOTE: if data_size <= 4 bytes data maybe in this field, but this may not always be the case handle this case
 						if(data_size <= 4) {
 							data = (u8*)&(entry->DataOffset);
 						}else{

@@ -1,21 +1,9 @@
-#define VERSION_MAJOR 3
-#define VERSION_MINOR 1
-#define VERSION_PATCH 2
 
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
 #include <math.h>
-
-
-// void LogError(const char* s, ...) {
-// 	va_list vl;
-// 	va_start(vl, s);
-// 	vprintf(s, vl);
-// 	va_end(vl);
-
-// }
 
 
 #if defined _MSC_VER
@@ -621,8 +609,6 @@ int main() {
 
 	ASSERT(buffer);
 
-	bool imageStarted = false;
-
 	u8* s_buffer = buffer;
 
 	u16 SOI = NextBytes(s_buffer, 2);
@@ -633,10 +619,7 @@ int main() {
 		u16 segment = NextBytes(s_buffer, 1);
 		switch(segment){
 			//case 0xD8:
-			//	if(!imageStarted){
-			//		printf("Start Of Image\n");
-			//		imageStarted = true;
-			//	}
+			//	printf("Start Of Image\n");
 			//	break;
 			//case 0xC0:
 			//	printf("Start Of Frame (baseline DCT)\n");

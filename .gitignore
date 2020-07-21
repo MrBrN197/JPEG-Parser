@@ -2,7 +2,7 @@
 .vscode/
 .vs/
 bin/
+/assets
 
 # Files
-example[0-9]*.jpg
 run_code.bat

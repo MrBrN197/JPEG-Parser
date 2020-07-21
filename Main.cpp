@@ -605,7 +605,7 @@ int main() {
 
 
 	u64 file_size;
-	u8* buffer = OpenFile("..\\example1.jpg", &file_size);
+	u8* buffer = OpenFile("..\\assets\\example1.jpg", &file_size);
 
 	ASSERT(buffer);
 
@@ -617,22 +617,62 @@ int main() {
 	while(s_buffer - buffer < file_size) {
 		ASSERT(NextBytes(s_buffer, 1) == 0xFF)
 		u16 segment = NextBytes(s_buffer, 1);
+		ASSERT(segment != 0x00 && segment != 0xFF)
 		switch(segment){
 			//case 0xD8:
 			//	printf("Start Of Image\n");
 			//	break;
-			//case 0xC0:
-			//	printf("Start Of Frame (baseline DCT)\n");
-			//	break;
+			case 0xC0:
+			case 0xC2: {
+				// Start Of Frame
+				u16 length = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
+				printf("Legnth %d\n", length);
+				ASSERT(NextBytes(s_buffer, 1) == 8)	// samples
+				u16 height = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
+				u16 width = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
+				ASSERT(width > 0 && height > 0)
+				printf("Width: %d Height: %d \n", width, height);
+				u16 components = NextBytes(s_buffer, 1);
+				ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
+				switch (components)
+				{
+				case 1:
+					printf("Grayscale\n");
+					break;
+				case 3:
+					printf("YUV\n");
+					break;
+				default:
+					break;
+				}
+				// start components
+				u8 id = NextBytes(s_buffer, 1);
+				u8 sample_factor = NextBytes(s_buffer, 1);
+				u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
+				u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
+				u8 quant_table_number = NextBytes(s_buffer, 1);
+				ASSERT(false);
+				break;
+
+			}
 			//case 0xC2:
 			//	printf("Start Of Frame (progressive DCT)\n");
 			//	break;
 			//case 0xC4:
 			//	printf("Define Huffman Table(s)\n");
 			//	break;
-			//case 0xDB:
-			//	printf("Define Quantization Tables\n");
-			//	break;
+			case 0xDB:{
+
+				printf("Define Quantization Tables\n");
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = b1 * 256 + b2;
+				length -= 2; // skip length bytes
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				s_buffer += length;
+				break;
+
+			}
 			//case 0xDD:
 			//	printf("Define Restart Interval\n");
 			//	break;
@@ -651,10 +691,41 @@ int main() {
 			//case 0xD9:
 			//	printf("End Of Image\n");
 			//	break;
+			case 0xE2:
+			case 0xE3:
+			case 0xE4:
+			case 0xE5:
+			case 0xE6:
+			case 0xE7:
+			case 0xE8:
+			case 0xE9:
+			case 0xEA:
+			case 0xEB:
+			case 0xEC:
+			case 0xED:
+			case 0xEE:
+			case 0xEF: {
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = b1 * 256 + b2;
+				length -= 2; // skip length bytes
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				s_buffer += length;
+				break;
+			}
+			case 0xE0:{
+				// APP0 segment used for JFIF standard
+				ASSERT(false)
+			}
 			case 0xE1:{
 				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
-				u16 length = _byteswap_ushort(NextBytes(s_buffer, 2));
-				length -= 4;
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = b1 * 256 + b2;
+				length -= 2; // skip length bytes
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				s_buffer += length;
+				break;		// skip APP1 for now
 				printf("Metadata Segment Size: %d\n", length);
 
 				// If Exif

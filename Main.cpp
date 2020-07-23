@@ -709,7 +709,7 @@ int main() {
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = b1 * 256 + b2;
 				length -= 2; // skip length bytes
-				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				s_buffer += length;
 				break;
 			}

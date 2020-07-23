@@ -614,6 +614,8 @@ int main() {
 	u16 SOI = NextBytes(s_buffer, 2);
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
+	u16 components;
+
 	while(s_buffer - buffer < file_size) {
 		ASSERT(NextBytes(s_buffer, 1) == 0xFF)
 		u16 segment = NextBytes(s_buffer, 1);
@@ -625,14 +627,14 @@ int main() {
 			case 0xC0:
 			case 0xC2: {
 				// Start Of Frame
-				u16 length = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
+				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
 				ASSERT(NextBytes(s_buffer, 1) == 8)	// samples
-				u16 height = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
-				u16 width = NextBytes(s_buffer, 1) * 256 + NextBytes(s_buffer, 1);
+				u16 height = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
+				u16 width = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				ASSERT(width > 0 && height > 0)
 				printf("Width: %d Height: %d \n", width, height);
-				u16 components = NextBytes(s_buffer, 1);
+				components = NextBytes(s_buffer, 1);	// Set number of components
 				ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
 				switch (components)
 				{
@@ -660,27 +662,58 @@ int main() {
 			//case 0xC2:
 			//	printf("Start Of Frame (progressive DCT)\n");
 			//	break;
-			//case 0xC4:
-			//	printf("Define Huffman Table(s)\n");
-			//	break;
+			case 0xC4:{
+				// NOTE: Skip
+				printf("Define Huffman Table(s)\n");
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = (b1 << 8) | b2;
+				length -= 2; // skip length bytes
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				s_buffer += length;
+				break;
+			}
 			case 0xDB:{
-
+				// NOTE: Skip
 				printf("Define Quantization Tables\n");
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
-				u16 length = b1 * 256 + b2;
+				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
 				s_buffer += length;
 				break;
 
 			}
-			//case 0xDD:
-			//	printf("Define Restart Interval\n");
-			//	break;
-			//case 0xDA:
-			//	printf("Start Of Scan\n");
-			//	break;
+			case 0xDD:{
+				// NOTE: Skip
+				printf("Define Restart Interval\n");
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = (b1 << 8) | b2;
+				ASSERT(length == 4);	// Should be fixed size of 4 bytes
+				u16 interval = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);	// interval value
+				break;
+			}
+			case 0xDA:{
+				printf("Start Of Scan\n");
+				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
+				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
+				u16 numScanComponents = NextBytes(s_buffer, 1);
+				ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
+
+				for(int i = 0; i < numScanComponents; i++){
+					u8 id = NextBytes(s_buffer, 1);
+					ASSERT(id == i + 1);
+					u8 huffman_table = NextBytes(s_buffer, 1);
+				}
+				NextBytes(s_buffer, 2);
+				NextBytes(s_buffer, 1);
+
+				// TODO: Scan Data
+				ASSERT(false);
+				break;
+			}
 			//// case 0xDn:
 			//// 	printf("0xDn\n");
 			//// 	break;
@@ -707,9 +740,10 @@ int main() {
 			case 0xED:
 			case 0xEE:
 			case 0xEF: {
+				// NOTE: Skip
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
-				u16 length = b1 * 256 + b2;
+				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				s_buffer += length;
@@ -723,7 +757,7 @@ int main() {
 				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
-				u16 length = b1 * 256 + b2;
+				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
 				s_buffer += length;

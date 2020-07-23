@@ -645,13 +645,15 @@ int main() {
 				default:
 					break;
 				}
-				// start components
-				u8 id = NextBytes(s_buffer, 1);
-				u8 sample_factor = NextBytes(s_buffer, 1);
-				u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
-				u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
-				u8 quant_table_number = NextBytes(s_buffer, 1);
-				ASSERT(false);
+				// NOTE: read components. I think?
+				for(int i = 0; i < components; i++){
+					u8 id = NextBytes(s_buffer, 1);
+					ASSERT(id == i+1);	// NOTE: ??
+					u8 sample_factor = NextBytes(s_buffer, 1);
+					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
+					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
+					u8 quant_table_number = NextBytes(s_buffer, 1);
+				}
 				break;
 
 			}

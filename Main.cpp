@@ -626,7 +626,7 @@ int main() {
 
 	u8* huffman_tables[HUFF_NUM_TABLES];
 	u8* data = new u8[QT_NUM_TABLES * 64];
-	u8* qt_tables[QT_NUM_TABLES];	// chrominanc luminanc quantization tables;
+	u8* qt_tables[QT_NUM_TABLES];	// chrominancr luminance quantization tables;
 	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
 	for(int qt = 0; qt < QT_NUM_TABLES; qt++){
 		qt_tables[qt] = data + (64 * qt);
@@ -760,9 +760,23 @@ int main() {
 					u32 numBytes = 64 * (qt_prec+1);
 					for(int j = 0; j < 64; j++){
 						u8 value = NextBytes(s_buffer, 1);
-						*qt_table_data++;
+						*qt_table_data++ = value;
 					}
 				}
+
+				for( int qt = 0; qt < QT_NUM_TABLES; qt++){
+					printf("QT ========== %d\n", qt);
+					u8* current_table = qt_tables[qt];
+					for(int x = 0; x < 8; x++){
+						printf("[");
+						for(int y = 0; y < 8; y++){
+							u8 value = *current_table++;
+							printf(" %3d ", value);
+						}
+						printf("]\n");
+					}
+				}
+
 				break;
 
 			}

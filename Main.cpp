@@ -601,11 +601,15 @@ const char* GetTagNameFromId(u16 tagId) {
 }
 
 
+#define HUFF_NUM_TABLES 4
+#define QT_NUM_TABLES 2
+
+
 int main() {
 
 
 	u64 file_size;
-	u8* buffer = OpenFile("..\\assets\\example1.jpg", &file_size);
+	u8* buffer = OpenFile("..\\assets\\example6.jpg", &file_size);
 
 	ASSERT(buffer);
 
@@ -615,6 +619,18 @@ int main() {
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
 	u16 components;
+	u32 imageWidth;
+	u32 imageHeight;
+	u8 huffmanTableCount = 0;
+	bool progressive = false;
+
+	u8* huffman_tables[HUFF_NUM_TABLES];
+	u8* data = new u8[QT_NUM_TABLES * 64];
+	u8* qt_tables[QT_NUM_TABLES];	// chrominanc luminanc quantization tables;
+	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
+	for(int qt = 0; qt < QT_NUM_TABLES; qt++){
+		qt_tables[qt] = data + (64 * qt);
+	}
 
 	while(s_buffer - buffer < file_size) {
 		ASSERT(NextBytes(s_buffer, 1) == 0xFF)
@@ -627,9 +643,12 @@ int main() {
 			case 0xC0:
 			case 0xC2: {
 				// Start Of Frame
+				printf("Start Of Frame \n");
+				if(segment == 0xC2)
+					progressive = true;
 				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
-				ASSERT(NextBytes(s_buffer, 1) == 8)	// samples
+				ASSERT(NextBytes(s_buffer, 1) == 8)	// bit-depth samples
 				u16 height = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				u16 width = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				ASSERT(width > 0 && height > 0)
@@ -654,23 +673,70 @@ int main() {
 					u8 sample_factor = NextBytes(s_buffer, 1);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
+					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
+					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
+					ASSERT((v_sample_factor * h_sample_factor) <= 10)
 					u8 quant_table_number = NextBytes(s_buffer, 1);
+					ASSERT(quant_table_number >= 0 && quant_table_number <= 3)
 				}
 				break;
 
 			}
-			//case 0xC2:
-			//	printf("Start Of Frame (progressive DCT)\n");
-			//	break;
 			case 0xC4:{
 				// NOTE: Skip
-				printf("Define Huffman Table(s)\n");
+				huffmanTableCount++;
+				printf("Define Huffman Table(s) Count: %d\n", huffmanTableCount);
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
-				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
-				s_buffer += length;
+				const u8* data_start = s_buffer;
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
+				u8 huffman_info = NextBytes(s_buffer, 1);
+				//u8 huff_type = (huffman_info << 4) == 1;
+				// ASSERT(huff_type == 0 || huff_type == 1)
+				u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
+				bool is_ac =  (1 << 4) & huffman_info;				// NOTE: 0 == for dc huffman tables, 1 == ac		
+				ASSERT(huff_dst_id == 0 || huff_dst_id == 1)
+
+				// BITS
+				u8 i_count;
+				u32 code_counts[16]; 
+				memset(code_counts, 0, 16 * sizeof(u32));
+				for(int i = 0; i < 16; i++){
+					i_count = NextBytes(s_buffer, 1);
+					code_counts[i] = i_count;
+					printf("%2d Bits, Count = %d\n", i + 1, i_count);
+				}
+				// HUFFVAL
+				// u32 scratch = 0x0;
+				// u32 scratch_bits = 0, available_bits = 0;
+				// for(int i = 1; i <= 16; i++){
+				// 	printf("%4d: [", i);
+				// 	for(int j = 0; j < code_counts[i-1]; j++) {
+				// 		if(i > available_bits) {
+				// 			u16 next = NextBytes(s_buffer, 1) << 8 | NextBytes(s_buffer, 1);
+				// 			scratch = scratch | (next << (16 - available_bits));
+				// 			available_bits += 16;
+				// 		}
+				// 		u8 value = scratch >> (32 - i);
+				// 		scratch = scratch << i;
+				// 		available_bits -= i;
+				// 		printf(" %d ", value);
+				// 	}
+				// 	printf("] \n");
+				// }
+
+				for(int i = 0; i < 16; i++){
+					printf("Idx: %d [ ", i+1);
+					for(int i = 0; i < code_counts[i];i++){
+						u8 value = NextBytes(s_buffer, 1);
+						printf(" %d ", value);
+					}
+					printf(" ]\n");
+				}
+
+				ASSERT(s_buffer - data_start == length);
 				break;
 			}
 			case 0xDB:{
@@ -680,8 +746,23 @@ int main() {
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
-				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
-				s_buffer += length;
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
+				ASSERT(length % 65 == 0);
+				for(int i = 0; i < (length / 65); i++){
+					ASSERT(length >= 65);
+					u8 qt_info = NextBytes(s_buffer, 1);
+					u8 qt_num = qt_info & 0x0F;
+					ASSERT(qt_num >= 0 && qt_num <= 3);
+					u8 qt_prec = qt_info >> 4;
+					ASSERT(qt_prec == 0);		// NOTE: for now 0 = 8-bit, can also be 1 = 16 bit
+					ASSERT(i < QT_NUM_TABLES);
+					u8* qt_table_data = qt_tables[i];
+					u32 numBytes = 64 * (qt_prec+1);
+					for(int j = 0; j < 64; j++){
+						u8 value = NextBytes(s_buffer, 1);
+						*qt_table_data++;
+					}
+				}
 				break;
 
 			}
@@ -698,19 +779,27 @@ int main() {
 			case 0xDA:{
 				printf("Start Of Scan\n");
 				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
-				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
 				u16 numScanComponents = NextBytes(s_buffer, 1);
+				ASSERT(numScanComponents == components)		// NOTE: ??
+				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
 				ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
 
 				for(int i = 0; i < numScanComponents; i++){
 					u8 id = NextBytes(s_buffer, 1);
-					ASSERT(id == i + 1);
-					u8 huffman_table = NextBytes(s_buffer, 1);
+					ASSERT(id == i + 1);	// NOTE: ??
+					u8 huffman_table = NextBytes(s_buffer, 1);	// DC and AC Huffman table
+					u8 ac = huffman_table & 0x0F;
+					u8 dc = huffman_table >> 4;
 				}
-				NextBytes(s_buffer, 2);
-				NextBytes(s_buffer, 1);
-
-				// TODO: Scan Data
+				s_buffer += 3;	// Skip 3 Unused Bytes
+				// TODO: Scan Data non-progressive image
+				while(true){
+					if(*s_buffer == 0xFF && *(s_buffer + 1) != 0x0){
+						// stuffed byte not marker
+						break;
+					}
+					s_buffer++;
+				}
 				ASSERT(false);
 				break;
 			}
@@ -751,7 +840,14 @@ int main() {
 			}
 			case 0xE0:{
 				// APP0 segment used for JFIF standard
-				ASSERT(false)
+				// NOTE: Skip
+				u8 b1 = NextBytes(s_buffer, 1);
+				u8 b2 = NextBytes(s_buffer, 1);
+				u16 length = (b1 << 8) | b2;
+				length -= 2; // skip length bytes
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
+				s_buffer += length;
+				break;
 			}
 			case 0xE1:{
 				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
@@ -759,7 +855,7 @@ int main() {
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
-				ASSERT((buffer + file_size) - s_buffer > length);	// length should be withing file
+				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				s_buffer += length;
 				break;		// skip APP1 for now
 				printf("Metadata Segment Size: %d\n", length);
@@ -837,25 +933,23 @@ int main() {
 
 						if(entry->TagId == 256) {
 							ASSERT(entry->DataType == 3 || entry->DataType == 4);
-							u32 width;
 							if(entry->DataType == 3){
 								// NOTE: if DataType == SHORT; because we already swapped the 4 byte DataOffset using STRUCT_ENTRY_SWAP
 								// we must unswap it take only the first two bytes and swap those.
 								// but this is essentially the same as just taking the last two bytes of DataOffset that was already swapped 
-								width = *(u16*)(data + 2);
+								imageWidth = *(u16*)(data + 2);
 							}else{
-								width = *(u32*)data;
+								imageWidth = *(u32*)data;
 							}
-							printf("Image Width:  %4d\n", width);
+							printf("Image Width:  %4d\n", imageWidth);
 						}else if(entry->TagId == 257) {
 							ASSERT(entry->DataType == 3 || entry->DataType == 4);
-							u32 height;
 							if(entry->DataType == 3){
-								height = *(u16*)(data + 2);
+								imageHeight = *(u16*)(data + 2);
 							}else{
-								height = *(u32*)data;
+								imageHeight = *(u32*)data;
 							}
-							printf("Image Height:  %4d\n", height);
+							printf("Image Height:  %4d\n", imageHeight);
 						}
 					}
 					ASSERT(ifd.NextIFDOffset >= 0);

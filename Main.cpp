@@ -675,8 +675,7 @@ int main() {
 			}
 			case 0xC4:{
 				// NOTE: Skip
-				huffmanTableCount++;
-				printf("Define Huffman Table(s) Count: %d\n", huffmanTableCount);
+				printf("Define Huffman Table(s) Count: %d\n", huffmanTableCount+1);
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
@@ -720,7 +719,7 @@ int main() {
 					}
 				}
 				
-				CreateHuffmanTable(code_counts, huffman_bytes);
+				huffman_tables[huffmanTableCount++] = CreateHuffmanTable(code_counts, huffman_bytes);
 				ASSERT(s_buffer - data_start == length);
 				break;
 			}

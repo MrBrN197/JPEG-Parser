@@ -1,23 +1,11 @@
 
 #include <stdio.h>
-#include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
 #include <math.h>
 
 
-#if defined _MSC_VER
-	#define ASSERT(x) if(!(x)) { __debugbreak();}
-	#define ASSERT_LOG(x, ...) if(!(x)) { printf(__VA_ARGS__); __debugbreak(); }
-	#include <intrin.h>
-#else
-	#define ASSERT(x) if(!(x)) { *((int*)0) = 0; }
-#endif
-
-using u8 = uint8_t;
-using u16 = uint16_t;
-using u32 = uint32_t;
-using u64 = uint64_t;
+#include "core.h"
 
 
 u8* OpenFile(const char* filename, u64* file_size) {
@@ -601,15 +589,17 @@ const char* GetTagNameFromId(u16 tagId) {
 }
 
 
-#define HUFF_NUM_TABLES 4
+#define HUFFMAN_NUM_TABLES 4
 #define QT_NUM_TABLES 2
 
+
+#include "Huffman.h"
 
 int main() {
 
 
 	u64 file_size;
-	u8* buffer = OpenFile("..\\assets\\example6.jpg", &file_size);
+	u8* buffer = OpenFile("..\\assets\\example7.jpg", &file_size);
 
 	ASSERT(buffer);
 
@@ -624,9 +614,9 @@ int main() {
 	u8 huffmanTableCount = 0;
 	bool progressive = false;
 
-	u8* huffman_tables[HUFF_NUM_TABLES];
+	Table* huffman_tables[HUFFMAN_NUM_TABLES];
 	u8* data = new u8[QT_NUM_TABLES * 64];
-	u8* qt_tables[QT_NUM_TABLES];	// chrominancr luminance quantization tables;
+	u8* qt_tables[QT_NUM_TABLES];	// chrominance and luminance quantization tables;
 	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
 	for(int qt = 0; qt < QT_NUM_TABLES; qt++){
 		qt_tables[qt] = data + (64 * qt);
@@ -654,7 +644,8 @@ int main() {
 				ASSERT(width > 0 && height > 0)
 				printf("Width: %d Height: %d \n", width, height);
 				components = NextBytes(s_buffer, 1);	// Set number of components
-				ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
+				ASSERT(components == 3)		// NOTE: 3 components for now
+				// ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
 				switch (components)
 				{
 				case 1:
@@ -706,36 +697,30 @@ int main() {
 				for(int i = 0; i < 16; i++){
 					i_count = NextBytes(s_buffer, 1);
 					code_counts[i] = i_count;
-					printf("%2d Bits, Count = %d\n", i + 1, i_count);
+					// printf("%2d Bits, Count = %d\n", i + 1, i_count);
 				}
-				// HUFFVAL
-				// u32 scratch = 0x0;
-				// u32 scratch_bits = 0, available_bits = 0;
-				// for(int i = 1; i <= 16; i++){
-				// 	printf("%4d: [", i);
-				// 	for(int j = 0; j < code_counts[i-1]; j++) {
-				// 		if(i > available_bits) {
-				// 			u16 next = NextBytes(s_buffer, 1) << 8 | NextBytes(s_buffer, 1);
-				// 			scratch = scratch | (next << (16 - available_bits));
-				// 			available_bits += 16;
-				// 		}
-				// 		u8 value = scratch >> (32 - i);
-				// 		scratch = scratch << i;
-				// 		available_bits -= i;
-				// 		printf(" %d ", value);
-				// 	}
-				// 	printf("] \n");
-				// }
 
+				u32 total_bytes = 0;
 				for(int i = 0; i < 16; i++){
-					printf("Idx: %d [ ", i+1);
-					for(int i = 0; i < code_counts[i];i++){
-						u8 value = NextBytes(s_buffer, 1);
-						printf(" %d ", value);
-					}
-					printf(" ]\n");
+					total_bytes += code_counts[i];
 				}
 
+				u8* huffman_bytes = new u8[total_bytes];
+				u32 byte_idx = 0;
+				for(int i = 0; i < 16; i++){
+					u8 count = code_counts[i];
+					if (code_counts[i] != 0) {
+						printf("%-2d Bits = [ ", i+1);
+						for(int j = 0; j < count; j++){
+							u8 value = NextBytes(s_buffer, 1);
+							*(huffman_bytes + byte_idx++) = value;
+							printf(" %d ", value);
+						}
+						printf(" ]\n");
+					}
+				}
+				
+				CreateHuffmanTable(code_counts, huffman_bytes);
 				ASSERT(s_buffer - data_start == length);
 				break;
 			}

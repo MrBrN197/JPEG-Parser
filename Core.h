@@ -14,3 +14,8 @@ using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
 using u64 = uint64_t;
+
+
+#define KiloBytes(x) x * 1024;
+#define MegaBytes(x) x * KiloBytes(1024);
+#define GigaBytes(x) x * MegaBytes(1024);

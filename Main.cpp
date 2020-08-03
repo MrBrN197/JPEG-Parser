@@ -40,6 +40,21 @@ u64 NextBytes(u8*& buffer, u8 numBytes){
 	return result;	
 }
 
+u64 GetBits(u8* buffer, u64 bit_pos, u8 bits) {
+	ASSERT(bits > 0 && bits <= 32);
+	u32 idx = bit_pos >> 5;
+	u32 offset = bit_pos & 31;
+	// u64 value = *((u64*)buffer + idx);
+	u8 b1 = NextBytes(buffer, 1);
+	u8 b2 = NextBytes(buffer, 1);
+	u8 b3 = NextBytes(buffer, 1);
+	u8 b4 = NextBytes(buffer, 1);
+	u32 value = b1 << 24 | b2 << 16 | b3 << 8 | b4;
+	value = value >> (32 - (offset + bits));
+	value &= (1ULL << bits) - 1;
+	return value;
+}
+
 u32 GetByteSizeFromCountAndType(u16 size, u16 type) {
 	u8 type_size;
 	switch (type) {
@@ -633,7 +648,7 @@ int main() {
 			case 0xC0:
 			case 0xC2: {
 				// Start Of Frame
-				printf("Start Of Frame \n");
+				printf("\n\n------------------- Start Of Frame -------------------\n");
 				if(segment == 0xC2)
 					progressive = true;
 				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
@@ -660,22 +675,36 @@ int main() {
 				// NOTE: read components. I think?
 				for(int i = 0; i < components; i++){
 					u8 id = NextBytes(s_buffer, 1);
-					ASSERT(id == i+1);	// NOTE: ??
 					u8 sample_factor = NextBytes(s_buffer, 1);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
 					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
 					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
 					ASSERT((v_sample_factor * h_sample_factor) <= 10)
-					u8 quant_table_number = NextBytes(s_buffer, 1);
-					ASSERT(quant_table_number >= 0 && quant_table_number <= 3)
+					u8 qt_table_number = NextBytes(s_buffer, 1);
+					ASSERT(qt_table_number >= 0 && qt_table_number <= 3)
+					switch (id)
+					{
+					case 1:
+						printf("Y  QT: %d samples: v%d:h%d\n", qt_table_number, h_sample_factor, v_sample_factor);
+						break;
+					case 2:
+						printf("Cb QT: %d samples: v%d:h%d\n", qt_table_number, h_sample_factor, v_sample_factor);
+						break;
+					case 3:
+						printf("Cr QT: %d samples: v%d:h%d\n", qt_table_number, h_sample_factor, v_sample_factor);
+						break;
+					default:
+						ASSERT(false);
+					}
+
 				}
 				break;
 
 			}
 			case 0xC4:{
 				// NOTE: Skip
-				printf("Define Huffman Table(s) Count: %d\n", huffmanTableCount+1);
+				printf("\n\n------------------- Define Huffman Table(s) Count: %d -------------------\n", huffmanTableCount+1);
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
@@ -709,13 +738,13 @@ int main() {
 				for(int i = 0; i < 16; i++){
 					u8 count = code_counts[i];
 					if (code_counts[i] != 0) {
-						printf("%-2d Bits = [ ", i+1);
+						// printf("%-2d Bits = [ ", i+1);
 						for(int j = 0; j < count; j++){
 							u8 value = NextBytes(s_buffer, 1);
 							*(huffman_bytes + byte_idx++) = value;
-							printf(" %d ", value);
+							// printf(" %d ", value);
 						}
-						printf(" ]\n");
+						// printf(" ]\n");
 					}
 				}
 				
@@ -725,7 +754,7 @@ int main() {
 			}
 			case 0xDB:{
 				// NOTE: Skip
-				printf("Define Quantization Tables\n");
+				printf("\n\n------------------- Define Quantization Tables -------------------\n");
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
@@ -748,7 +777,7 @@ int main() {
 					}
 				}
 
-				for( int qt = 0; qt < QT_NUM_TABLES; qt++){
+				for( int qt = 0; qt < 1; qt++){		// TODO: extract all tables
 					printf("QT ========== %d\n", qt);
 					u8* current_table = qt_tables[qt];
 					for(int x = 0; x < 8; x++){
@@ -766,7 +795,7 @@ int main() {
 			}
 			case 0xDD:{
 				// NOTE: Skip
-				printf("Define Restart Interval\n");
+				printf("\n\n------------------- Define Restart Interval -------------------\n");
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
@@ -775,7 +804,7 @@ int main() {
 				break;
 			}
 			case 0xDA:{
-				printf("Start Of Scan\n");
+				printf("\n\n------------------- Start Of Scan -------------------\n");
 				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
 				u16 numScanComponents = NextBytes(s_buffer, 1);
 				ASSERT(numScanComponents == components)		// NOTE: ??
@@ -785,20 +814,68 @@ int main() {
 				for(int i = 0; i < numScanComponents; i++){
 					u8 id = NextBytes(s_buffer, 1);
 					ASSERT(id == i + 1);	// NOTE: ??
+
 					u8 huffman_table = NextBytes(s_buffer, 1);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
+					printf("Component ID: %d | DC: %d AC: %d\n", id, dc , ac);
 				}
 				s_buffer += 3;	// Skip 3 Unused Bytes
 				// TODO: Scan Data non-progressive image
+				constexpr u32 MAX_SCAN_DATA = MegaBytes(12);
+				u8* scan_data = new u8[MAX_SCAN_DATA];
+				u32 scan_count = 0;
 				while(true){
-					if(*s_buffer == 0xFF && *(s_buffer + 1) != 0x0){
-						// stuffed byte not marker
-						break;
+					ASSERT((s_buffer - buffer) < file_size)
+					u8 byte = NextBytes(s_buffer, 1);
+					if(byte == 0xFF){
+						if (*s_buffer == 0xD9){
+							s_buffer -= 1;
+							break;
+							ASSERT(false);
+						}else {
+							ASSERT(*s_buffer == 0x0)
+							s_buffer++;		//  Skip stuff byte
+						}
 					}
-					s_buffer++;
+					ASSERT(scan_count < MAX_SCAN_DATA);
+					*(scan_data + scan_count++) = byte;
 				}
-				ASSERT(false);
+
+				// Decode Scan Data
+				u8* decoded_data = new u8[MAX_SCAN_DATA];
+
+				u32 bit = 0;
+				while(true) {
+					Table* root = huffman_tables[0];	// TODO: use correct table
+					while(!root->isValue){
+						bool bit_value = GetBits(scan_data, bit++, 1) == 0;
+						ASSERT(bit_value == 0 || bit_value == 1)
+						root = (bit_value) ? root->left : root->right;
+						ASSERT(root)
+					}
+					// get value category
+					u32 val_category = root->value;
+					ASSERT(val_category < 16);
+					// convert bit representation to value
+					u32 value = GetBits(scan_data, bit, val_category);
+					bit += val_category;
+					u16 is_neg = (value >> (val_category - 1)) & 1;
+					ASSERT(is_neg == 0 || is_neg == 1);
+					if(!is_neg){
+						value = ~value & (1 << val_category) - 1;
+					}
+					value = value & ~(1 << val_category - 1);
+					u16 start = 1 << (val_category - 1);
+					value = start + value;
+					// start | (value);
+					if(!is_neg){
+						value = -value;
+					}
+					printf("Value: %d\n", value);
+					ASSERT(false)
+				}
+				ASSERT(false)
 				break;
 			}
 			//// case 0xDn:
@@ -810,9 +887,9 @@ int main() {
 			//case 0xFE:
 			//	printf("Comment\n");
 			//	break;
-			//case 0xD9:
-			//	printf("End Of Image\n");
-			//	break;
+			case 0xD9:
+				printf("End Of Image\n");
+				break;
 			case 0xE2:
 			case 0xE3:
 			case 0xE4:
@@ -966,3 +1043,6 @@ int main() {
 
 	return 0;
 }
+
+
+

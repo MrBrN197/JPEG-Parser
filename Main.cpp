@@ -728,32 +728,31 @@ int main() {
 					// printf("%2d Bits, Count = %d\n", i + 1, i_count);
 				}
 
+				// Get Total Bytes For Huffman Table
 				u32 total_bytes = 0;
 				for(int i = 0; i < 16; i++){
 					total_bytes += code_counts[i];
 				}
+				ASSERT(total_bytes <= 256);
 
 				u8* huffman_bytes = new u8[total_bytes];
 				u32 byte_idx = 0;
 				for(int i = 0; i < 16; i++){
 					u8 count = code_counts[i];
-					if (code_counts[i] != 0) {
-						// printf("%-2d Bits = [ ", i+1);
-						for(int j = 0; j < count; j++){
-							u8 value = NextBytes(s_buffer, 1);
-							*(huffman_bytes + byte_idx++) = value;
-							// printf(" %d ", value);
-						}
-						// printf(" ]\n");
+					// printf("%-2d Bits = [ ", i+1);
+					for(int j = 0; j < count; j++){
+						u8 value = NextBytes(s_buffer, 1);
+						*(huffman_bytes + byte_idx++) = value;
+						// printf(" %d ", value);
 					}
+					// printf(" ]\n");
 				}
 				
-				huffman_tables[huffmanTableCount++] = CreateHuffmanTable(code_counts, huffman_bytes);
+				huffman_tables[huff_dst_id] = CreateHuffmanTable(code_counts, huffman_bytes);
 				ASSERT(s_buffer - data_start == length);
 				break;
 			}
 			case 0xDB:{
-				// NOTE: Skip
 				printf("\n\n------------------- Define Quantization Tables -------------------\n");
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
@@ -809,8 +808,10 @@ int main() {
 				u16 numScanComponents = NextBytes(s_buffer, 1);
 				ASSERT(numScanComponents == components)		// NOTE: ??
 				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
-				ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
+				// ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
+				ASSERT(numScanComponents == 3)		// TODO: can be >= 1 and <= 4
 
+				u32 comp_tables[3][2] = {};
 				for(int i = 0; i < numScanComponents; i++){
 					u8 id = NextBytes(s_buffer, 1);
 					ASSERT(id == i + 1);	// NOTE: ??
@@ -818,6 +819,9 @@ int main() {
 					u8 huffman_table = NextBytes(s_buffer, 1);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
+					ASSERT(ac < HUFFMAN_NUM_TABLES && dc < HUFFMAN_NUM_TABLES);
+					comp_tables[i][0] = ac;
+					comp_tables[i][1] = dc;
 					printf("Component ID: %d | DC: %d AC: %d\n", id, dc , ac);
 				}
 				s_buffer += 3;	// Skip 3 Unused Bytes
@@ -844,33 +848,26 @@ int main() {
 
 				// Decode Scan Data
 				u8* decoded_data = new u8[MAX_SCAN_DATA];
+				memset(decoded_data, NULL, MAX_SCAN_DATA * sizeof(u8));
 
 				u32 bit = 0;
 				while(true) {
-					Table* root = huffman_tables[0];	// TODO: use correct table
+					Table* root = huffman_tables[comp_tables[0][1]];	// TODO: use correct table
 					while(!root->isValue){
-						bool bit_value = GetBits(scan_data, bit++, 1) == 0;
+						u8 bit_value = GetBits(scan_data, bit++, 1);
 						ASSERT(bit_value == 0 || bit_value == 1)
-						root = (bit_value) ? root->left : root->right;
+						root = (bit_value) ? root->right : root->left;
 						ASSERT(root)
 					}
 					// get value category
 					u32 val_category = root->value;
 					ASSERT(val_category < 16);
 					// convert bit representation to value
-					u32 value = GetBits(scan_data, bit, val_category);
+					u16 value = GetBits(scan_data, bit, val_category);
 					bit += val_category;
 					u16 is_neg = (value >> (val_category - 1)) & 1;
-					ASSERT(is_neg == 0 || is_neg == 1);
 					if(!is_neg){
-						value = ~value & (1 << val_category) - 1;
-					}
-					value = value & ~(1 << val_category - 1);
-					u16 start = 1 << (val_category - 1);
-					value = start + value;
-					// start | (value);
-					if(!is_neg){
-						value = -value;
+						value = (i16)(0xffff << val_category) + value + 1;
 					}
 					printf("Value: %d\n", value);
 					ASSERT(false)

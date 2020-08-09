@@ -55,6 +55,25 @@ u64 GetBits(u8* buffer, u64 bit_pos, u8 bits) {
 	return value;
 }
 
+i16 DecodeValueCategory(i16 value, u8 bits) {
+	ASSERT(bits < 16);
+	ASSERT( ((value >> 15) & 1) == 0 );
+	ASSERT((((1 << bits) - 1) & value) == value);
+
+	u16 is_neg = (value >> (bits - 1)) & 1;
+
+	if(!is_neg){
+		// 16384
+		ASSERT(value >= 0);
+		ASSERT(value < 16384);
+		// value = value & ((1 << bits) - 1);
+		return (i16)(0xffff << bits) + value + 1;
+		// i16 start = -(1 << bits) + 1;
+		// return start + value;
+	}
+	return value;
+}
+
 u32 GetByteSizeFromCountAndType(u16 size, u16 type) {
 	u8 type_size;
 	switch (type) {
@@ -851,25 +870,45 @@ int main() {
 				memset(decoded_data, NULL, MAX_SCAN_DATA * sizeof(u8));
 
 				u32 bit = 0;
-				while(true) {
-					Table* root = huffman_tables[comp_tables[0][1]];	// TODO: use correct table
-					while(!root->isValue){
-						u8 bit_value = GetBits(scan_data, bit++, 1);
-						ASSERT(bit_value == 0 || bit_value == 1)
-						root = (bit_value) ? root->right : root->left;
-						ASSERT(root)
+				for(int c = 0; c < numScanComponents; c++) {
+					{
+						Table* root = huffman_tables[comp_tables[c][1]];		// DC table
+						while(!root->isValue){
+							u8 bit_value = GetBits(scan_data, bit++, 1);
+							ASSERT(bit_value == 0 || bit_value == 1)
+							root = (bit_value) ? root->right : root->left;
+							ASSERT(root)
+						}
+						// get value category
+						u8 vc = root->value;
+						ASSERT(vc < 16);
+						// convert bit representation to value
+						u16 value = GetBits(scan_data, bit, vc);
+						bit += vc;
+						value = DecodeValueCategory(value, vc);		// NOTE: delta-encoded value
+						printf("Value: %d\n", value);
 					}
-					// get value category
-					u32 val_category = root->value;
-					ASSERT(val_category < 16);
-					// convert bit representation to value
-					u16 value = GetBits(scan_data, bit, val_category);
-					bit += val_category;
-					u16 is_neg = (value >> (val_category - 1)) & 1;
-					if(!is_neg){
-						value = (i16)(0xffff << val_category) + value + 1;
+
+					for(int ac = 0; ac < 63; ac++){
+						// Read AC Values
+						Table* root = huffman_tables[comp_tables[c][0]];	// AC table
+						while(!root->isValue){
+							u8 bit_value = GetBits(scan_data, bit++, 1);
+							ASSERT(bit_value == 0 || bit_value == 1)
+							root = (bit_value) ? root->right : root->left;
+							ASSERT(root)
+						}
+						u32 ac_info = root->value;
+						ASSERT(ac_info <= 0xff);
+
+						u8 zrl = (ac_info >> 4) & 0x0F;
+						u8 vc = ac_info & 0x0F; 
+						ASSERT(vc != 0);
+						u16 value = GetBits(scan_data, bit, vc);
+						bit += vc;
+						value = DecodeValueCategory(value, vc);
+						printf("Zero Run Length: %d  VC: %d AC[%2d] == %d\n\n", zrl, vc, ac, value);
 					}
-					printf("Value: %d\n", value);
 					ASSERT(false)
 				}
 				ASSERT(false)

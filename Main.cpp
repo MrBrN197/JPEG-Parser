@@ -1,4 +1,6 @@
 
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -42,13 +44,13 @@ u64 NextBytes(u8*& buffer, u8 numBytes){
 
 u64 GetBits(u8* buffer, u64 bit_pos, u8 bits) {
 	ASSERT(bits > 0 && bits <= 32);
-	u32 idx = bit_pos >> 5;
+	u32 idx = (u32)(bit_pos >> 5);
 	u32 offset = bit_pos & 31;
 	// u64 value = *((u64*)buffer + idx);
-	u8 b1 = NextBytes(buffer, 1);
-	u8 b2 = NextBytes(buffer, 1);
-	u8 b3 = NextBytes(buffer, 1);
-	u8 b4 = NextBytes(buffer, 1);
+	u8 b1 = (u8)NextBytes(buffer, 1);
+	u8 b2 = (u8)NextBytes(buffer, 1);
+	u8 b3 = (u8)NextBytes(buffer, 1);
+	u8 b4 = (u8)NextBytes(buffer, 1);
 	u32 value = b1 << 24 | b2 << 16 | b3 << 8 | b4;
 	value = value >> (32 - (offset + bits));
 	value &= (1ULL << bits) - 1;
@@ -635,11 +637,14 @@ int main() {
 	u64 file_size;
 	u8* buffer = OpenFile("..\\assets\\example7.jpg", &file_size);
 
+
+	auto result = buffer - buffer;
+
 	ASSERT(buffer);
 
 	u8* s_buffer = buffer;
 
-	u16 SOI = NextBytes(s_buffer, 2);
+	u16 SOI = (u8)NextBytes(s_buffer, 2);
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
 	u16 components;
@@ -656,9 +661,9 @@ int main() {
 		qt_tables[qt] = data + (64 * qt);
 	}
 
-	while(s_buffer - buffer < file_size) {
-		ASSERT(NextBytes(s_buffer, 1) == 0xFF)
-		u16 segment = NextBytes(s_buffer, 1);
+	while((u64)(s_buffer - buffer) < file_size) {
+		ASSERT((u8)NextBytes(s_buffer, 1) == 0xFF)
+		u16 segment = (u8)NextBytes(s_buffer, 1);
 		ASSERT(segment != 0x00 && segment != 0xFF)
 		switch(segment){
 			//case 0xD8:
@@ -670,14 +675,14 @@ int main() {
 				printf("\n\n------------------- Start Of Frame -------------------\n");
 				if(segment == 0xC2)
 					progressive = true;
-				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
+				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
-				ASSERT(NextBytes(s_buffer, 1) == 8)	// bit-depth samples
-				u16 height = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
-				u16 width = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
+				ASSERT((u8)NextBytes(s_buffer, 1) == 8)	// bit-depth samples
+				u16 height = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				u16 width = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				ASSERT(width > 0 && height > 0)
 				printf("Width: %d Height: %d \n", width, height);
-				components = NextBytes(s_buffer, 1);	// Set number of components
+				components = (u8)NextBytes(s_buffer, 1);	// Set number of components
 				ASSERT(components == 3)		// NOTE: 3 components for now
 				// ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
 				switch (components)
@@ -693,14 +698,14 @@ int main() {
 				}
 				// NOTE: read components. I think?
 				for(int i = 0; i < components; i++){
-					u8 id = NextBytes(s_buffer, 1);
-					u8 sample_factor = NextBytes(s_buffer, 1);
+					u8 id = (u8)NextBytes(s_buffer, 1);
+					u8 sample_factor = (u8)NextBytes(s_buffer, 1);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
 					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
 					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
 					ASSERT((v_sample_factor * h_sample_factor) <= 10)
-					u8 qt_table_number = NextBytes(s_buffer, 1);
+					u8 qt_table_number = (u8)NextBytes(s_buffer, 1);
 					ASSERT(qt_table_number >= 0 && qt_table_number <= 3)
 					switch (id)
 					{
@@ -724,13 +729,13 @@ int main() {
 			case 0xC4:{
 				// NOTE: Skip
 				printf("\n\n------------------- Define Huffman Table(s) Count: %d -------------------\n", ++huffmanTableCount);
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				const u8* data_start = s_buffer;
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
-				u8 huffman_info = NextBytes(s_buffer, 1);
+				u8 huffman_info = (u8)NextBytes(s_buffer, 1);
 				//u8 huff_type = (huffman_info << 4) == 1;
 				// ASSERT(huff_type == 0 || huff_type == 1)
 				u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
@@ -742,7 +747,7 @@ int main() {
 				u32 code_counts[16]; 
 				memset(code_counts, 0, 16 * sizeof(u32));
 				for(int i = 0; i < 16; i++){
-					i_count = NextBytes(s_buffer, 1);
+					i_count = (u8)NextBytes(s_buffer, 1);
 					code_counts[i] = i_count;
 					// printf("%2d Bits, Count = %d\n", i + 1, i_count);
 				}
@@ -760,7 +765,7 @@ int main() {
 					u8 count = code_counts[i];
 					// printf("%-2d Bits = [ ", i+1);
 					for(int j = 0; j < count; j++){
-						u8 value = NextBytes(s_buffer, 1);
+						u8 value = (u8)NextBytes(s_buffer, 1);
 						*(huffman_bytes + byte_idx++) = value;
 						// printf(" %d ", value);
 					}
@@ -773,15 +778,15 @@ int main() {
 			}
 			case 0xDB:{
 				printf("\n\n------------------- Define Quantization Tables -------------------\n");
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				ASSERT(length % 65 == 0);
 				for(int i = 0; i < (length / 65); i++){
 					ASSERT(length >= 65);
-					u8 qt_info = NextBytes(s_buffer, 1);
+					u8 qt_info = (u8)NextBytes(s_buffer, 1);
 					u8 qt_num = qt_info & 0x0F;
 					ASSERT(qt_num >= 0 && qt_num <= 3);
 					u8 qt_prec = qt_info >> 4;
@@ -790,7 +795,7 @@ int main() {
 					u8* qt_table_data = qt_tables[i];
 					u32 numBytes = 64 * (qt_prec+1);
 					for(int j = 0; j < 64; j++){
-						u8 value = NextBytes(s_buffer, 1);
+						u8 value = (u8)NextBytes(s_buffer, 1);
 						*qt_table_data++ = value;
 					}
 				}
@@ -814,17 +819,17 @@ int main() {
 			case 0xDD:{
 				// NOTE: Skip
 				printf("\n\n------------------- Define Restart Interval -------------------\n");
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				ASSERT(length == 4);	// Should be fixed size of 4 bytes
-				u16 interval = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);	// interval value
+				u16 interval = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);	// interval value
 				break;
 			}
 			case 0xDA:{
 				printf("\n\n------------------- Start Of Scan -------------------\n");
-				u16 length = (NextBytes(s_buffer, 1) << 8) | NextBytes(s_buffer, 1);
-				u16 numScanComponents = NextBytes(s_buffer, 1);
+				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				u16 numScanComponents = (u8)NextBytes(s_buffer, 1);
 				ASSERT(numScanComponents == components)		// NOTE: ??
 				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
 				// ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
@@ -832,10 +837,10 @@ int main() {
 
 				u32 comp_tables[3][2] = {};
 				for(int i = 0; i < numScanComponents; i++){
-					u8 id = NextBytes(s_buffer, 1);
+					u8 id = (u8)NextBytes(s_buffer, 1);
 					ASSERT(id == i + 1);	// NOTE: ??
 
-					u8 huffman_table = NextBytes(s_buffer, 1);	// DC and AC Huffman table
+					u8 huffman_table = (u8)NextBytes(s_buffer, 1);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
 					ASSERT(ac < HUFFMAN_NUM_TABLES && dc < HUFFMAN_NUM_TABLES);
@@ -849,8 +854,8 @@ int main() {
 				u8* scan_data = new u8[MAX_SCAN_DATA];
 				u32 scan_count = 0;
 				while(true){
-					ASSERT((s_buffer - buffer) < file_size)
-					u8 byte = NextBytes(s_buffer, 1);
+					ASSERT((u64)(s_buffer - buffer) < file_size)
+					u8 byte = (u8)NextBytes(s_buffer, 1);
 					if(byte == 0xFF){
 						if (*s_buffer == 0xD9){
 							s_buffer -= 1;
@@ -874,16 +879,16 @@ int main() {
 					{
 						Table* root = huffman_tables[comp_tables[c][1]];		// DC table
 						while(!root->isValue){
-							u8 bit_value = GetBits(scan_data, bit++, 1);
+							u8 bit_value = (u8)GetBits(scan_data, bit++, 1);
 							ASSERT(bit_value == 0 || bit_value == 1)
 							root = (bit_value) ? root->right : root->left;
 							ASSERT(root)
 						}
 						// get value category
-						u8 vc = root->value;
+						u8 vc = (u8)root->value;
 						ASSERT(vc < 16);
 						// convert bit representation to value
-						i16 value = GetBits(scan_data, bit, vc);
+						i16 value = (i16)GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);		// NOTE: delta-encoded value
 						printf("Value: %d\n", value);
@@ -893,18 +898,18 @@ int main() {
 						// Read AC Values
 						Table* root = huffman_tables[comp_tables[c][0]];	// AC table
 						while(!root->isValue){
-							u8 bit_value = GetBits(scan_data, bit++, 1);
+							u8 bit_value = (u8)GetBits(scan_data, bit++, 1);
 							ASSERT(bit_value == 0 || bit_value == 1)
 							root = (bit_value) ? root->right : root->left;
 							ASSERT(root)
 						}
-						u32 ac_info = root->value;
+						u32 ac_info = (u8)root->value;
 						ASSERT(ac_info <= 0xff);
 
 						u8 zrl = (ac_info >> 4) & 0x0F;
 						u8 vc = ac_info & 0x0F; 
 						ASSERT(vc != 0);
-						i16 value = GetBits(scan_data, bit, vc);
+						i16 value = (i16)GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);
 						printf("Zero Run Length: %d  VC: %d AC[%2d] == %d\n\n", zrl, vc, ac, value);
@@ -941,8 +946,8 @@ int main() {
 			case 0xEE:
 			case 0xEF: {
 				// NOTE: Skip
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -952,8 +957,8 @@ int main() {
 			case 0xE0:{
 				// APP0 segment used for JFIF standard
 				// NOTE: Skip
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -962,8 +967,8 @@ int main() {
 			}
 			case 0xE1:{
 				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
-				u8 b1 = NextBytes(s_buffer, 1);
-				u8 b2 = NextBytes(s_buffer, 1);
+				u8 b1 = (u8)NextBytes(s_buffer, 1);
+				u8 b2 = (u8)NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -975,7 +980,7 @@ int main() {
 				ASSERT(strcmp((const char*)s_buffer, "Exif") == 0); // next two bytes should be null so strcmp should work with s_buffer
 				s_buffer += 4;
 				// skip two null bytes
-				ASSERT(NextBytes(s_buffer, 2) == 0x0);
+				ASSERT((u8)NextBytes(s_buffer, 2) == 0x0);
 					
 				// Tiff Image File Header
 				struct TIFHEAD {
@@ -1012,10 +1017,10 @@ int main() {
 				int ifd_number = 0;
 				while(true){
 					printf("\n==============  IFD %2d  ===============\n", ifd_number++);
-					ifd.NumDirEntries = _byteswap_ushort(NextBytes(s_buffer, 2));
+					ifd.NumDirEntries = _byteswap_ushort((u8)NextBytes(s_buffer, 2));
 					ifd.TagList = (TIFTAG*)s_buffer;
 					s_buffer += (sizeof(TIFTAG) * ifd.NumDirEntries);	// skip TIFTAGS
-					ifd.NextIFDOffset = _byteswap_ulong(NextBytes(s_buffer, 4));
+					ifd.NextIFDOffset = _byteswap_ulong((u8)NextBytes(s_buffer, 4));
 
 #define SWAP_STRUCT_ENTRY(entry, mode) entry = _byteswap_##mode(entry); 
 

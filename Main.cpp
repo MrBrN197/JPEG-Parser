@@ -704,7 +704,7 @@ int main() {
 			}
 			case 0xC4:{
 				// NOTE: Skip
-				printf("\n\n------------------- Define Huffman Table(s) Count: %d -------------------\n", huffmanTableCount+1);
+				printf("\n\n------------------- Define Huffman Table(s) Count: %d -------------------\n", ++huffmanTableCount);
 				u8 b1 = NextBytes(s_buffer, 1);
 				u8 b2 = NextBytes(s_buffer, 1);
 				u16 length = (b1 << 8) | b2;

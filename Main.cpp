@@ -883,7 +883,7 @@ int main() {
 						u8 vc = root->value;
 						ASSERT(vc < 16);
 						// convert bit representation to value
-						u16 value = GetBits(scan_data, bit, vc);
+						i16 value = GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);		// NOTE: delta-encoded value
 						printf("Value: %d\n", value);
@@ -904,7 +904,7 @@ int main() {
 						u8 zrl = (ac_info >> 4) & 0x0F;
 						u8 vc = ac_info & 0x0F; 
 						ASSERT(vc != 0);
-						u16 value = GetBits(scan_data, bit, vc);
+						i16 value = GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);
 						printf("Zero Run Length: %d  VC: %d AC[%2d] == %d\n\n", zrl, vc, ac, value);

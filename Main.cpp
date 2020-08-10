@@ -636,15 +636,11 @@ int main() {
 
 	u64 file_size;
 	u8* buffer = OpenFile("..\\assets\\example7.jpg", &file_size);
-
-
-	auto result = buffer - buffer;
-
 	ASSERT(buffer);
 
 	u8* s_buffer = buffer;
 
-	u16 SOI = (u8)NextBytes(s_buffer, 2);
+	u16 SOI = (u16)NextBytes(s_buffer, 2);
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
 	u16 components;
@@ -854,7 +850,7 @@ int main() {
 				u8* scan_data = new u8[MAX_SCAN_DATA];
 				u32 scan_count = 0;
 				while(true){
-					ASSERT((u64)(s_buffer - buffer) < file_size)
+					ASSERT(((u64)s_buffer - (u64)buffer) < file_size)
 					u8 byte = (u8)NextBytes(s_buffer, 1);
 					if(byte == 0xFF){
 						if (*s_buffer == 0xD9){
@@ -875,7 +871,8 @@ int main() {
 				memset(decoded_data, NULL, MAX_SCAN_DATA * sizeof(u8));
 
 				u32 bit = 0;
-				for(int c = 0; c < numScanComponents; c++) {
+				for(u8 c = 0; c < numScanComponents; c++) {
+					printf("\n\nCOMPONENT: %hhu\n", c);
 					{
 						Table* root = huffman_tables[comp_tables[c][1]];		// DC table
 						while(!root->isValue){
@@ -891,7 +888,7 @@ int main() {
 						i16 value = (i16)GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);		// NOTE: delta-encoded value
-						printf("Value: %d\n", value);
+						printf("DC Coff: %d\n", value);
 					}
 
 					for(int ac = 0; ac < 63; ac++){
@@ -908,13 +905,19 @@ int main() {
 
 						u8 zrl = (ac_info >> 4) & 0x0F;
 						u8 vc = ac_info & 0x0F; 
-						ASSERT(vc != 0);
+						if( vc == 0){
+							ASSERT(zrl == 0);
+							break;
+						}
 						i16 value = (i16)GetBits(scan_data, bit, vc);
 						bit += vc;
 						value = DecodeValueCategory(value, vc);
-						printf("Zero Run Length: %d  VC: %d AC[%2d] == %d\n\n", zrl, vc, ac, value);
+						if(zrl > 0){
+							printf("0 * %hhu\n", zrl);
+						}
+						ac += zrl;
+						printf("AC[%2d] == %hd\n", ac, value);
 					}
-					ASSERT(false)
 				}
 				ASSERT(false)
 				break;
@@ -980,7 +983,7 @@ int main() {
 				ASSERT(strcmp((const char*)s_buffer, "Exif") == 0); // next two bytes should be null so strcmp should work with s_buffer
 				s_buffer += 4;
 				// skip two null bytes
-				ASSERT((u8)NextBytes(s_buffer, 2) == 0x0);
+				ASSERT((u16)NextBytes(s_buffer, 2) == 0x0);
 					
 				// Tiff Image File Header
 				struct TIFHEAD {
@@ -1017,7 +1020,7 @@ int main() {
 				int ifd_number = 0;
 				while(true){
 					printf("\n==============  IFD %2d  ===============\n", ifd_number++);
-					ifd.NumDirEntries = _byteswap_ushort((u8)NextBytes(s_buffer, 2));
+					ifd.NumDirEntries = _byteswap_ushort((u16)NextBytes(s_buffer, 2));
 					ifd.TagList = (TIFTAG*)s_buffer;
 					s_buffer += (sizeof(TIFTAG) * ifd.NumDirEntries);	// skip TIFTAGS
 					ifd.NextIFDOffset = _byteswap_ulong((u8)NextBytes(s_buffer, 4));

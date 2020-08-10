@@ -8,6 +8,7 @@
 
 
 #include "core.h"
+#include "Huffman.h"
 
 
 u8* OpenFile(const char* filename, u64* file_size) {
@@ -74,6 +75,16 @@ i16 DecodeValueCategory(i16 value, u8 bits) {
 		// return start + value;
 	}
 	return value;
+}
+
+u64 GetHuffmanValue(Table* table, u8* scan_data, u32& bit_offset) {
+	while(!table->isValue){
+		u8 bit_value = (u8)GetBits(scan_data, bit_offset++, 1);
+		ASSERT(bit_value == 0 || bit_value == 1)
+		table = (bit_value) ? table->right : table->left;
+		ASSERT(table)
+	}
+	return table->value;
 }
 
 u32 GetByteSizeFromCountAndType(u16 size, u16 type) {
@@ -629,7 +640,6 @@ const char* GetTagNameFromId(u16 tagId) {
 #define QT_NUM_TABLES 2
 
 
-#include "Huffman.h"
 
 int main() {
 
@@ -875,14 +885,7 @@ int main() {
 					printf("\n\nCOMPONENT: %hhu\n", c);
 					{
 						Table* root = huffman_tables[comp_tables[c][1]];		// DC table
-						while(!root->isValue){
-							u8 bit_value = (u8)GetBits(scan_data, bit++, 1);
-							ASSERT(bit_value == 0 || bit_value == 1)
-							root = (bit_value) ? root->right : root->left;
-							ASSERT(root)
-						}
-						// get value category
-						u8 vc = (u8)root->value;
+						u8 vc = (u8)GetHuffmanValue(root, scan_data, bit);
 						ASSERT(vc < 16);
 						// convert bit representation to value
 						i16 value = (i16)GetBits(scan_data, bit, vc);
@@ -894,13 +897,7 @@ int main() {
 					for(int ac = 0; ac < 63; ac++){
 						// Read AC Values
 						Table* root = huffman_tables[comp_tables[c][0]];	// AC table
-						while(!root->isValue){
-							u8 bit_value = (u8)GetBits(scan_data, bit++, 1);
-							ASSERT(bit_value == 0 || bit_value == 1)
-							root = (bit_value) ? root->right : root->left;
-							ASSERT(root)
-						}
-						u32 ac_info = (u8)root->value;
+						u32 ac_info = (u8)GetHuffmanValue(root, scan_data, bit);
 						ASSERT(ac_info <= 0xff);
 
 						u8 zrl = (ac_info >> 4) & 0x0F;

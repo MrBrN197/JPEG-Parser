@@ -47,11 +47,11 @@ u64 GetBits(u8* buffer, u64 bit_pos, u8 bits) {
 	ASSERT(bits > 0 && bits <= 32);
 	u32 idx = (u32)(bit_pos >> 5);
 	u32 offset = bit_pos & 31;
-	// u64 value = *((u64*)buffer + idx);
-	u8 b1 = (u8)NextBytes(buffer, 1);
-	u8 b2 = (u8)NextBytes(buffer, 1);
-	u8 b3 = (u8)NextBytes(buffer, 1);
-	u8 b4 = (u8)NextBytes(buffer, 1);
+	u8* buffer_offset = (u8*)((u32*)buffer + idx);
+	u8 b1 = (u8)NextBytes(buffer_offset, 1);
+	u8 b2 = (u8)NextBytes(buffer_offset, 1);
+	u8 b3 = (u8)NextBytes(buffer_offset, 1);
+	u8 b4 = (u8)NextBytes(buffer_offset, 1);
 	u32 value = b1 << 24 | b2 << 16 | b3 << 8 | b4;
 	value = value >> (32 - (offset + bits));
 	value &= (1ULL << bits) - 1;

@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 
 
 #include "core.h"
@@ -638,14 +639,49 @@ const char* GetTagNameFromId(u16 tagId) {
 
 #define QT_NUM_TABLES 2
 
+bool OpenJPEGFile(const char* file);
 
-
+#define MAX_FILES 7
+// attempt to open all files listed in file_path
 int main() {
 
+	FILE* fp = fopen("../files.txt", "r");
+	if(!fp) {
+		printf("Failed To Open File\n");
+	}
+
+	u32 total_files = 0;
+	char files[MAX_FILES][80]; 
+	while (fgets(files[total_files], 80, fp))
+		total_files++;
+
+
+	for(u32 i = 0; i < total_files; i++) {
+
+		u8 index = (u8)strlen(files[i]);
+		if(files[i][index-1] == '\n'){
+			files[i][index-1] = '\0';
+		}
+
+		if(!OpenJPEGFile(files[i])) {
+			printf(">> [FAILED]: Failed To Open %s\n", files[i]);
+		}
+	}
+
+	getchar();
+
+	return 0;
+}
+
+
+bool OpenJPEGFile(const char* file) {
 
 	u64 file_size;
-	u8* buffer = OpenFile("..\\assets\\example6.jpg", &file_size);
-	ASSERT(buffer);
+	u8* buffer = OpenFile(file, &file_size);
+	if(!buffer) {
+		printf("Couldn't find %s\n", file);
+		return false;
+	}
 
 	u8* s_buffer = buffer;
 
@@ -678,10 +714,11 @@ int main() {
 			case 0xC2: {
 				// Start Of Frame
 				printf("\n\n------------------- Start Of Frame -------------------\n");
-				if(segment == 0xC2)
+				if(segment == 0xC2) {
 					progressive = true;
-					printf("Doesn't Support Progressive JPEG");
-					ASSERT(false)	// NO progressive support
+					printf("Doesn't Support Progressive JPEG\n");
+					return false;	// NO progressive support
+				}
 				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
 				ASSERT((u8)NextBytes(s_buffer, 1) == 8)	// bit-depth samples
@@ -826,6 +863,8 @@ int main() {
 			}
 			case 0xDD:{
 				// NOTE: Skip
+				printf("No Restart Interval Support\n");
+				return false;
 				printf("\n\n------------------- Define Restart Interval -------------------\n");
 				u8 b1 = (u8)NextBytes(s_buffer, 1);
 				u8 b2 = (u8)NextBytes(s_buffer, 1);
@@ -907,9 +946,9 @@ int main() {
 								ASSERT( bit < scan_count * 8)
  								value = DecodeValueCategory(value, (u8)vc);		// NOTE: delta-encoded value
 								prevDCValues[c] += value;
-								printf("DC Coff: %hd\n", prevDCValues[c]);
+								// printf("DC Coff: %hd\n", prevDCValues[c]);
 							} else {
-								printf("DC Coff: EOB\n");
+								// printf("DC Coff: EOB\n");
 							}
 							block[0] = prevDCValues[c] * qt_tables[table_idx][0];
 						}
@@ -950,17 +989,17 @@ int main() {
 							}
 						}
 						for (int x = 0; x < 8; x++){
-							printf("[");
+							// printf("[");
 							for(int y = 0; y < 8; y++) {
 								i16 value = block[(x * 8) + y];
-								printf(" %4hd,", value);
+								// printf(" %4hd,", value);
 							}
-							printf(" ]\n");
+							// printf(" ]\n");
 						}
 						// printf("Finished at %d\n", ac);
 					}
 				}
-				ASSERT(false)
+				// ASSERT(false)
 				break;
 			}
 			//// case 0xDn:
@@ -1129,9 +1168,7 @@ int main() {
 		}
 	}
 
-	getchar();
-
-	return 0;
+	return true;
 }
 
 

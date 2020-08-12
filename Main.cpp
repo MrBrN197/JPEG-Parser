@@ -636,7 +636,6 @@ const char* GetTagNameFromId(u16 tagId) {
 }
 
 
-#define HUFFMAN_NUM_TABLES 4
 #define QT_NUM_TABLES 2
 
 
@@ -645,7 +644,7 @@ int main() {
 
 
 	u64 file_size;
-	u8* buffer = OpenFile("..\\assets\\example7.jpg", &file_size);
+	u8* buffer = OpenFile("..\\assets\\example6.jpg", &file_size);
 	ASSERT(buffer);
 
 	u8* s_buffer = buffer;
@@ -659,8 +658,8 @@ int main() {
 	u8 huffmanTableCount = 0;
 	bool progressive = false;
 
-	Table* huffman_tables[HUFFMAN_NUM_TABLES];
-	u8* data = new u8[QT_NUM_TABLES * 64];
+	Table* huffman_tables[2][2];
+	u8 data[QT_NUM_TABLES * 64];
 	u8* qt_tables[QT_NUM_TABLES];	// chrominance and luminance quantization tables;
 	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
 	for(int qt = 0; qt < QT_NUM_TABLES; qt++){
@@ -684,10 +683,10 @@ int main() {
 				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
 				ASSERT((u8)NextBytes(s_buffer, 1) == 8)	// bit-depth samples
-				u16 height = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
-				u16 width = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
-				ASSERT(width > 0 && height > 0)
-				printf("Width: %d Height: %d \n", width, height);
+				imageHeight = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				imageWidth = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				ASSERT(imageWidth > 0 && imageHeight > 0)
+				printf("Width: %d Height: %d \n", imageWidth, imageHeight);
 				components = (u8)NextBytes(s_buffer, 1);	// Set number of components
 				ASSERT(components == 3)		// NOTE: 3 components for now
 				// ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
@@ -745,7 +744,12 @@ int main() {
 				//u8 huff_type = (huffman_info << 4) == 1;
 				// ASSERT(huff_type == 0 || huff_type == 1)
 				u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
-				bool is_ac =  (1 << 4) & huffman_info;				// NOTE: 0 == for dc huffman tables, 1 == ac		
+				u8 is_ac =  (huffman_info >> 4) & 1;				// NOTE: 0 == for dc huffman tables, 1 == ac		
+				if(is_ac) {
+					printf("AC Huffman Table IDX: %hhu,  AC: %d\n", huff_dst_id, is_ac);	
+				} else {
+					printf("DC Huffman Table IDX: %hhu,  AC: %d\n", huff_dst_id, is_ac);
+				}
 				ASSERT(huff_dst_id == 0 || huff_dst_id == 1)
 
 				// BITS
@@ -778,7 +782,7 @@ int main() {
 					// printf(" ]\n");
 				}
 				
-				huffman_tables[huff_dst_id] = CreateHuffmanTable(code_counts, huffman_bytes);
+				huffman_tables[huff_dst_id][is_ac] = CreateHuffmanTable(code_counts, huffman_bytes);
 				ASSERT(s_buffer - data_start == length);
 				break;
 			}
@@ -790,15 +794,16 @@ int main() {
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				ASSERT(length % 65 == 0);
+				u8 qt_num;
 				for(int i = 0; i < (length / 65); i++){
 					ASSERT(length >= 65);
 					u8 qt_info = (u8)NextBytes(s_buffer, 1);
-					u8 qt_num = qt_info & 0x0F;
+					qt_num = qt_info & 0x0F;
 					ASSERT(qt_num >= 0 && qt_num <= 3);
 					u8 qt_prec = qt_info >> 4;
 					ASSERT(qt_prec == 0);		// NOTE: for now 0 = 8-bit, can also be 1 = 16 bit
-					ASSERT(i < QT_NUM_TABLES);
-					u8* qt_table_data = qt_tables[i];
+					ASSERT(qt_num < QT_NUM_TABLES);
+					u8* qt_table_data = qt_tables[qt_num];
 					u32 numBytes = 64 * (qt_prec+1);
 					for(int j = 0; j < 64; j++){
 						u8 value = (u8)NextBytes(s_buffer, 1);
@@ -806,17 +811,15 @@ int main() {
 					}
 				}
 
-				for( int qt = 0; qt < 1; qt++){		// TODO: extract all tables
-					printf("QT ========== %d\n", qt);
-					u8* current_table = qt_tables[qt];
-					for(int x = 0; x < 8; x++){
-						printf("[");
-						for(int y = 0; y < 8; y++){
-							u8 value = *current_table++;
-							printf(" %3d ", value);
-						}
-						printf("]\n");
+				printf("QT ========== %d\n", qt_num);
+				u8* current_table = qt_tables[qt_num];
+				for(int x = 0; x < 8; x++){
+					printf("[");
+					for(int y = 0; y < 8; y++){
+						u8 value = *current_table++;
+						printf(" %3d ", value);
 					}
+					printf("]\n");
 				}
 
 				break;
@@ -849,9 +852,9 @@ int main() {
 					u8 huffman_table = (u8)NextBytes(s_buffer, 1);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
-					ASSERT(ac < HUFFMAN_NUM_TABLES && dc < HUFFMAN_NUM_TABLES);
-					comp_tables[i][0] = ac;
-					comp_tables[i][1] = dc;
+					ASSERT(ac < 2 && dc < 2);
+					comp_tables[i][0] = dc;
+					comp_tables[i][1] = ac;
 					printf("Component ID: %d | DC: %d AC: %d\n", id, dc , ac);
 				}
 				s_buffer += 3;	// Skip 3 Unused Bytes
@@ -881,39 +884,78 @@ int main() {
 				memset(decoded_data, NULL, MAX_SCAN_DATA * sizeof(u8));
 
 				u32 bit = 0;
-				for(u8 c = 0; c < numScanComponents; c++) {
-					printf("\n\nCOMPONENT: %hhu\n", c);
-					{
-						Table* root = huffman_tables[comp_tables[c][1]];		// DC table
-						u8 vc = (u8)GetHuffmanValue(root, scan_data, bit);
-						ASSERT(vc < 16);
-						// convert bit representation to value
-						i16 value = (i16)GetBits(scan_data, bit, vc);
-						bit += vc;
-						value = DecodeValueCategory(value, vc);		// NOTE: delta-encoded value
-						printf("DC Coff: %d\n", value);
-					}
+				u32 numMcuBlocks = ((imageWidth + 7u)/ 8u) * ((imageHeight + 7u) / 8u);
+				i16 prevDCValues[3] = {0, 0, 0};
+				for(u32 mcu = 0; mcu < numMcuBlocks; mcu++){
+					// printf("\n\nImage Block: %d\n", mcu);
+					for(u8 c = 0; c < numScanComponents; c++) {
+						u8 dc_table = comp_tables[c][0];
+						u8 ac_table = comp_tables[c][1];
+						u8 table_idx = (c == 0) ? 0 : 1;
 
-					for(int ac = 0; ac < 63; ac++){
-						// Read AC Values
-						Table* root = huffman_tables[comp_tables[c][0]];	// AC table
-						u32 ac_info = (u8)GetHuffmanValue(root, scan_data, bit);
-						ASSERT(ac_info <= 0xff);
+						i16 block[64] = {};
+						memset(block, 0, sizeof(i16) * 64);
 
-						u8 zrl = (ac_info >> 4) & 0x0F;
-						u8 vc = ac_info & 0x0F; 
-						if( vc == 0){
-							ASSERT(zrl == 0);
-							break;
+						// printf("COMPONENT: %hhu\n", c);
+						{
+							Table* root = huffman_tables[table_idx][0];		// DC table
+							u64 vc = GetHuffmanValue(root, scan_data, bit);
+							ASSERT(vc < 16);
+							if (vc != 0) {
+								// convert bit representation to value
+								i16 value = (i16)GetBits(scan_data, bit, (u8)vc);
+								bit += (u8)vc;
+ 								value = DecodeValueCategory(value, (u8)vc);		// NOTE: delta-encoded value
+								prevDCValues[c] += value;
+								printf("DC Coff: %hd\n", prevDCValues[c]);
+							} else {
+								printf("DC Coff: EOB\n");
+							}
+							block[0] = prevDCValues[c] * qt_tables[table_idx][0];
 						}
-						i16 value = (i16)GetBits(scan_data, bit, vc);
-						bit += vc;
-						value = DecodeValueCategory(value, vc);
-						if(zrl > 0){
-							printf("0 * %hhu\n", zrl);
+
+						int ac;
+						for(ac = 0; ac < 63; ac++){
+							// Read AC Values
+							Table* root = huffman_tables[table_idx][1];	// AC table
+							u64 ac_info = GetHuffmanValue(root, scan_data, bit);
+							ASSERT(ac_info <= 0xff);
+
+							u8 zrl = (ac_info >> 4) & 0x0F;
+							u8 vc = ac_info & 0x0F; 
+							if( vc != 0){
+								i16 value = (i16)GetBits(scan_data, bit, vc);
+								bit += vc;
+								value = DecodeValueCategory(value, vc);
+								if(zrl > 0){
+									// printf("AC[%2d ... %2d] == 0\n", ac, ac+zrl);
+								}
+								// printf("AC[%2d] == %hd\n", ac, value);
+								ASSERT((ac + zrl) <= 63)
+								block[ac + 1] = value * qt_tables[table_idx][ac + 1];
+								ac += zrl;
+							} else {
+								if( zrl == 0x0F ) {
+									// printf("AC[%2d ... %2d] == 0\n", ac, ac+zrl+1);
+									ASSERT((ac + zrl) <= 63)
+									ac += zrl;	// +16
+									continue;
+								} else {
+									ASSERT(zrl == 0);
+									// printf("AC[%2d] == EOB\n", ac);
+									break;
+								}
+							}
 						}
-						ac += zrl;
-						printf("AC[%2d] == %hd\n", ac, value);
+						for (int x = 0; x < 8; x++){
+							printf("[");
+							for(int y = 0; y < 8; y++) {
+								i16 value = block[(x * 8) + y];
+								printf(" %4hd,", value);
+							}
+							printf(" ]\n");
+						}
+						// printf("Finished at %d\n", ac);
 					}
 				}
 				ASSERT(false)
@@ -1049,21 +1091,23 @@ int main() {
 
 						if(entry->TagId == 256) {
 							ASSERT(entry->DataType == 3 || entry->DataType == 4);
+							u16 width;
 							if(entry->DataType == 3){
 								// NOTE: if DataType == SHORT; because we already swapped the 4 byte DataOffset using STRUCT_ENTRY_SWAP
 								// we must unswap it take only the first two bytes and swap those.
 								// but this is essentially the same as just taking the last two bytes of DataOffset that was already swapped 
-								imageWidth = *(u16*)(data + 2);
+								width = *(u16*)(data + 2);
 							}else{
-								imageWidth = *(u32*)data;
+								width = *(u32*)data;
 							}
 							printf("Image Width:  %4d\n", imageWidth);
 						}else if(entry->TagId == 257) {
 							ASSERT(entry->DataType == 3 || entry->DataType == 4);
+							u16 height;
 							if(entry->DataType == 3){
-								imageHeight = *(u16*)(data + 2);
+								height = *(u16*)(data + 2);
 							}else{
-								imageHeight = *(u32*)data;
+								height = *(u32*)data;
 							}
 							printf("Image Height:  %4d\n", imageHeight);
 						}

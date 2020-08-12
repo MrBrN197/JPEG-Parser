@@ -658,7 +658,7 @@ int main() {
 	u8 huffmanTableCount = 0;
 	bool progressive = false;
 
-	Table* huffman_tables[2][2];
+	Table* huffman_tables[2][2] = {{nullptr, nullptr}, {nullptr, nullptr}};
 	u8 data[QT_NUM_TABLES * 64];
 	u8* qt_tables[QT_NUM_TABLES];	// chrominance and luminance quantization tables;
 	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
@@ -680,6 +680,8 @@ int main() {
 				printf("\n\n------------------- Start Of Frame -------------------\n");
 				if(segment == 0xC2)
 					progressive = true;
+					printf("Doesn't Support Progressive JPEG");
+					ASSERT(false)	// NO progressive support
 				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				printf("Legnth %d\n", length);
 				ASSERT((u8)NextBytes(s_buffer, 1) == 8)	// bit-depth samples
@@ -740,49 +742,46 @@ int main() {
 				length -= 2; // skip length bytes
 				const u8* data_start = s_buffer;
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
-				u8 huffman_info = (u8)NextBytes(s_buffer, 1);
-				//u8 huff_type = (huffman_info << 4) == 1;
-				// ASSERT(huff_type == 0 || huff_type == 1)
-				u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
-				u8 is_ac =  (huffman_info >> 4) & 1;				// NOTE: 0 == for dc huffman tables, 1 == ac		
-				if(is_ac) {
-					printf("AC Huffman Table IDX: %hhu,  AC: %d\n", huff_dst_id, is_ac);	
-				} else {
-					printf("DC Huffman Table IDX: %hhu,  AC: %d\n", huff_dst_id, is_ac);
-				}
-				ASSERT(huff_dst_id == 0 || huff_dst_id == 1)
+				while ( (s_buffer - data_start) < length) {
 
-				// BITS
-				u8 i_count;
-				u32 code_counts[16]; 
-				memset(code_counts, 0, 16 * sizeof(u32));
-				for(int i = 0; i < 16; i++){
-					i_count = (u8)NextBytes(s_buffer, 1);
-					code_counts[i] = i_count;
-					// printf("%2d Bits, Count = %d\n", i + 1, i_count);
-				}
+					u8 huffman_info = (u8)NextBytes(s_buffer, 1);
+					u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
+					u8 is_ac =  (huffman_info >> 4) & 1;				// NOTE: 0 == for dc huffman tables, 1 == ac		
+					printf("Huffman Table IDX: %hhu,  is AC: %d\n", huff_dst_id, is_ac);	
+					ASSERT(huff_dst_id == 0 || huff_dst_id == 1)
 
-				// Get Total Bytes For Huffman Table
-				u32 total_bytes = 0;
-				for(int i = 0; i < 16; i++){
-					total_bytes += code_counts[i];
-				}
-				ASSERT(total_bytes <= 256);
-
-				u8* huffman_bytes = new u8[total_bytes];
-				u32 byte_idx = 0;
-				for(int i = 0; i < 16; i++){
-					u8 count = code_counts[i];
-					// printf("%-2d Bits = [ ", i+1);
-					for(int j = 0; j < count; j++){
-						u8 value = (u8)NextBytes(s_buffer, 1);
-						*(huffman_bytes + byte_idx++) = value;
-						// printf(" %d ", value);
+					// BITS
+					u8 i_count;
+					u32 code_counts[16]; 
+					memset(code_counts, 0, 16 * sizeof(u32));
+					for(int i = 0; i < 16; i++){
+						i_count = (u8)NextBytes(s_buffer, 1);
+						code_counts[i] = i_count;
+						// printf("%2d Bits, Count = %d\n", i + 1, i_count);
 					}
-					// printf(" ]\n");
+
+					// Get Total Bytes For Huffman Table
+					u32 total_bytes = 0;
+					for(int i = 0; i < 16; i++){
+						total_bytes += code_counts[i];
+					}
+					ASSERT(total_bytes <= 256);
+
+					u8* huffman_bytes = new u8[total_bytes];
+					u32 byte_idx = 0;
+					for(int i = 0; i < 16; i++){
+						u8 count = code_counts[i];
+						// printf("%-2d Bits = [ ", i+1);
+						for(int j = 0; j < count; j++){
+							u8 value = (u8)NextBytes(s_buffer, 1);
+							*(huffman_bytes + byte_idx++) = value;
+							// printf(" %d ", value);
+						}
+						// printf(" ]\n");
+					}
+					
+					huffman_tables[huff_dst_id][is_ac] = CreateHuffmanTable(code_counts, huffman_bytes);
 				}
-				
-				huffman_tables[huff_dst_id][is_ac] = CreateHuffmanTable(code_counts, huffman_bytes);
 				ASSERT(s_buffer - data_start == length);
 				break;
 			}
@@ -861,18 +860,17 @@ int main() {
 				// TODO: Scan Data non-progressive image
 				constexpr u32 MAX_SCAN_DATA = MegaBytes(12);
 				u8* scan_data = new u8[MAX_SCAN_DATA];
+				memset(scan_data, 0, sizeof(u8) * MAX_SCAN_DATA);
 				u32 scan_count = 0;
 				while(true){
 					ASSERT(((u64)s_buffer - (u64)buffer) < file_size)
 					u8 byte = (u8)NextBytes(s_buffer, 1);
 					if(byte == 0xFF){
-						if (*s_buffer == 0xD9){
+						if (*s_buffer == 0x0) {
+							s_buffer++;		//  Skip stuff byte
+						} else {
 							s_buffer -= 1;
 							break;
-							ASSERT(false);
-						}else {
-							ASSERT(*s_buffer == 0x0)
-							s_buffer++;		//  Skip stuff byte
 						}
 					}
 					ASSERT(scan_count < MAX_SCAN_DATA);
@@ -899,12 +897,14 @@ int main() {
 						// printf("COMPONENT: %hhu\n", c);
 						{
 							Table* root = huffman_tables[table_idx][0];		// DC table
+							ASSERT( bit < scan_count * 8)
 							u64 vc = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(vc < 16);
 							if (vc != 0) {
 								// convert bit representation to value
 								i16 value = (i16)GetBits(scan_data, bit, (u8)vc);
 								bit += (u8)vc;
+								ASSERT( bit < scan_count * 8)
  								value = DecodeValueCategory(value, (u8)vc);		// NOTE: delta-encoded value
 								prevDCValues[c] += value;
 								printf("DC Coff: %hd\n", prevDCValues[c]);
@@ -918,12 +918,14 @@ int main() {
 						for(ac = 0; ac < 63; ac++){
 							// Read AC Values
 							Table* root = huffman_tables[table_idx][1];	// AC table
+							ASSERT( bit < scan_count * 8)
 							u64 ac_info = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(ac_info <= 0xff);
 
 							u8 zrl = (ac_info >> 4) & 0x0F;
 							u8 vc = ac_info & 0x0F; 
 							if( vc != 0){
+								ASSERT( bit < scan_count * 8)
 								i16 value = (i16)GetBits(scan_data, bit, vc);
 								bit += vc;
 								value = DecodeValueCategory(value, vc);
@@ -972,6 +974,7 @@ int main() {
 			//	break;
 			case 0xD9:
 				printf("End Of Image\n");
+				ASSERT((s_buffer - buffer) == file_size);
 				break;
 			case 0xE2:
 			case 0xE3:
@@ -1125,6 +1128,8 @@ int main() {
 				break;
 		}
 	}
+
+	getchar();
 
 	return 0;
 }

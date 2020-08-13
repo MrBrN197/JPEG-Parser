@@ -32,10 +32,14 @@ u8* OpenFile(const char* filename, u64* file_size) {
 }
 
 
+u8 NextByte(u8*& buffer){
+	return *buffer++;
+}
+
 u64 NextBytes(u8*& buffer, u8 numBytes){
 	ASSERT(numBytes == 1 || numBytes == 2 || numBytes == 4 || numBytes == 8)
 
-	// only works on little endian machine
+	// NOTE: reads bytes in little endian
 	u64 value = *(u64*)buffer;
 	u64 mask = (1ULL << (numBytes * 8)) - 1;
 
@@ -49,10 +53,10 @@ u64 GetBits(u8* buffer, u64 bit_pos, u8 bits) {
 	u32 idx = (u32)(bit_pos >> 5);
 	u32 offset = bit_pos & 31;
 	u8* buffer_offset = (u8*)((u32*)buffer + idx);
-	u8 b1 = (u8)NextBytes(buffer_offset, 1);
-	u8 b2 = (u8)NextBytes(buffer_offset, 1);
-	u8 b3 = (u8)NextBytes(buffer_offset, 1);
-	u8 b4 = (u8)NextBytes(buffer_offset, 1);
+	u8 b1 = NextByte(buffer_offset);
+	u8 b2 = NextByte(buffer_offset);
+	u8 b3 = NextByte(buffer_offset);
+	u8 b4 = NextByte(buffer_offset);
 	u32 value = b1 << 24 | b2 << 16 | b3 << 8 | b4;
 	value = value >> (32 - (offset + bits));
 	value &= (1ULL << bits) - 1;
@@ -712,8 +716,8 @@ bool OpenJPEGFile(const char* file) {
 	}
 
 	while((u64)(s_buffer - buffer) < file_size) {
-		ASSERT((u8)NextBytes(s_buffer, 1) == 0xFF)
-		u16 segment = (u8)NextBytes(s_buffer, 1);
+		ASSERT(NextByte(s_buffer) == 0xFF)
+		u8 segment = NextByte(s_buffer);
 		ASSERT(segment != 0x00 && segment != 0xFF)
 		switch(segment){
 			//case 0xD8:
@@ -728,14 +732,14 @@ bool OpenJPEGFile(const char* file) {
 					printf("Doesn't Support Progressive JPEG\n");
 					return false;	// NO progressive support
 				}
-				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				u16 length = (NextByte(s_buffer) << 8) | NextByte(s_buffer);
 				printf("Legnth %d\n", length);
-				ASSERT((u8)NextBytes(s_buffer, 1) == 8)	// bit-depth samples
-				imageHeight = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
-				imageWidth = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
+				ASSERT(NextByte(s_buffer) == 8)	// bit-depth samples
+				imageHeight = (NextByte(s_buffer) << 8) | NextByte(s_buffer);
+				imageWidth = (NextByte(s_buffer) << 8) | NextByte(s_buffer);
 				ASSERT(imageWidth > 0 && imageHeight > 0)
 				printf("Width: %d Height: %d \n", imageWidth, imageHeight);
-				numComponents = (u8)NextBytes(s_buffer, 1);	// Get number of components
+				numComponents = NextByte(s_buffer);	// Get number of components
 				ASSERT(numComponents == 3)		// TODO: 3 components for now
 				// ASSERT(numComponents == 1 || numComponents == 3);	// Grayscale or YCbCr
 				if (numComponents == 1) {
@@ -745,16 +749,16 @@ bool OpenJPEGFile(const char* file) {
 
 				u32 sample_sum = 0;
 				for(int i = 0; i < numComponents; i++){
-					u8 id = (u8)NextBytes(s_buffer, 1);
+					u8 id = NextByte(s_buffer);
 					components[id] = true;
-					u8 sample_factor = (u8)NextBytes(s_buffer, 1);
+					u8 sample_factor = NextByte(s_buffer);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
 					sample_sum += h_sample_factor * v_sample_factor;
 					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
 					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
 					ASSERT((v_sample_factor * h_sample_factor) <= 10)
-					u8 qt_table_number = (u8)NextBytes(s_buffer, 1);
+					u8 qt_table_number = NextByte(s_buffer);
 					ASSERT(qt_table_number >= 0 && qt_table_number <= 3)
 					switch (id)
 					{
@@ -781,15 +785,15 @@ bool OpenJPEGFile(const char* file) {
 			case 0xC4:{
 				// NOTE: Skip
 				printf("\n\n------------------- Define Huffman Table(s) Count: %d -------------------\n", ++huffmanTableCount);
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				const u8* data_start = s_buffer;
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
 				while ( (s_buffer - data_start) < length) {
 
-					u8 huffman_info = (u8)NextBytes(s_buffer, 1);
+					u8 huffman_info = NextByte(s_buffer);
 					u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
 					u8 is_ac =  (huffman_info >> 4) & 1;				// NOTE: 0 == for dc huffman tables, 1 == ac		
 					printf("Huffman Table IDX: %hhu,  is AC: %d\n", huff_dst_id, is_ac);	
@@ -800,7 +804,7 @@ bool OpenJPEGFile(const char* file) {
 					u32 code_counts[16]; 
 					memset(code_counts, 0, 16 * sizeof(u32));
 					for(int i = 0; i < 16; i++){
-						i_count = (u8)NextBytes(s_buffer, 1);
+						i_count = NextByte(s_buffer);
 						code_counts[i] = i_count;
 						// printf("%2d Bits, Count = %d\n", i + 1, i_count);
 					}
@@ -818,7 +822,7 @@ bool OpenJPEGFile(const char* file) {
 						u8 count = code_counts[i];
 						// printf("%-2d Bits = [ ", i+1);
 						for(int j = 0; j < count; j++){
-							u8 value = (u8)NextBytes(s_buffer, 1);
+							u8 value = NextByte(s_buffer);
 							*(huffman_bytes + byte_idx++) = value;
 							// printf(" %d ", value);
 						}
@@ -832,8 +836,8 @@ bool OpenJPEGFile(const char* file) {
 			}
 			case 0xDB:{
 				printf("\n\n------------------- Define Quantization Tables -------------------\n");
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -841,7 +845,7 @@ bool OpenJPEGFile(const char* file) {
 				u8 qt_num;
 				for(int i = 0; i < (length / 65); i++){
 					ASSERT(length >= 65);
-					u8 qt_info = (u8)NextBytes(s_buffer, 1);
+					u8 qt_info = NextByte(s_buffer);
 					qt_num = qt_info & 0x0F;
 					ASSERT(qt_num >= 0 && qt_num <= 3);
 					u8 qt_prec = qt_info >> 4;
@@ -850,7 +854,7 @@ bool OpenJPEGFile(const char* file) {
 					u8* qt_table_data = qt_tables[qt_num];
 					u32 numBytes = 64 * (qt_prec+1);
 					for(u32 j = 0; j < numBytes; j++){
-						u8 value = (u8)NextBytes(s_buffer, 1);
+						u8 value = NextByte(s_buffer);
 						*qt_table_data++ = value;
 					}
 				}
@@ -874,17 +878,17 @@ bool OpenJPEGFile(const char* file) {
 				printf("No Restart Interval Support\n");
 				return false;
 				printf("\n\n------------------- Define Restart Interval -------------------\n");
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				ASSERT(length == 4);	// Should be fixed size of 4 bytes
-				u16 interval = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);	// interval value
+				u16 interval = (NextByte(s_buffer) << 8) | NextByte(s_buffer);	// interval value
 				break;
 			}
 			case 0xDA:{
 				printf("\n\n------------------- Start Of Scan -------------------\n");
-				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
-				u16 numScanComponents = (u8)NextBytes(s_buffer, 1);
+				u16 length = (NextByte(s_buffer) << 8) | NextByte(s_buffer);
+				u16 numScanComponents = NextByte(s_buffer);
 				ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
 				ASSERT(numScanComponents == numComponents)		// NOTE: ??
 				ASSERT(length == 6+2*numScanComponents);	// NOTE: must equal 6+2*components
@@ -895,12 +899,12 @@ bool OpenJPEGFile(const char* file) {
 				ASSERT(numScanComponents == 3)
 				const char* componentNames[4] = {"", "Y", "Cb", "Cr"};		// NOTE: Probably not always correct
 				for(int i = 0; i < numScanComponents; i++){
-					u8 id = (u8)NextBytes(s_buffer, 1);
+					u8 id = NextByte(s_buffer);
 					ASSERT(components[id])
 					comp_order[i] = id;
 					comp_order_set[id] = true;
 
-					u8 huffman_table = (u8)NextBytes(s_buffer, 1);	// DC and AC Huffman table
+					u8 huffman_table = NextByte(s_buffer);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
 					ASSERT(ac < 4 && dc < 4);	// NOTE 0-3 for extended DCT
@@ -918,7 +922,7 @@ bool OpenJPEGFile(const char* file) {
 				u32 scan_count = 0;
 				while(true){
 					ASSERT(((u64)s_buffer - (u64)buffer) < file_size)
-					u8 byte = (u8)NextBytes(s_buffer, 1);
+					u8 byte = NextByte(s_buffer);
 					if(byte == 0xFF){
 						if (*s_buffer == 0x0) {
 							s_buffer++;		//  Skip stuff byte
@@ -1051,8 +1055,8 @@ bool OpenJPEGFile(const char* file) {
 			case 0xEE:
 			case 0xEF: {
 				// NOTE: Skip
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -1062,8 +1066,8 @@ bool OpenJPEGFile(const char* file) {
 			case 0xE0:{
 				// APP0 segment used for JFIF standard
 				// NOTE: Skip
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file
@@ -1072,8 +1076,8 @@ bool OpenJPEGFile(const char* file) {
 			}
 			case 0xE1:{
 				// NOTE: Exif does not use APPn segments other than APP1, APP2 and COM segments. However, some unknown APPn may still exist on the file structure and Exif readers should be designed to skip over them.
-				u8 b1 = (u8)NextBytes(s_buffer, 1);
-				u8 b2 = (u8)NextBytes(s_buffer, 1);
+				u8 b1 = NextByte(s_buffer);
+				u8 b2 = NextByte(s_buffer);
 				u16 length = (b1 << 8) | b2;
 				length -= 2; // skip length bytes
 				ASSERT((buffer + file_size) - s_buffer > length);	// length should be within file

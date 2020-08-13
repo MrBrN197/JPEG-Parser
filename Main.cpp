@@ -647,14 +647,19 @@ int main() {
 
 	FILE* fp = fopen("../files.txt", "r");
 	if(!fp) {
-		printf("Failed To Open File\n");
+		printf("Failed To Open File \"files.txt\"\n");
 	}
 
 	u32 total_files = 0;
 	char files[MAX_FILES][80]; 
-	while (fgets(files[total_files], 80, fp))
+	bool files_opened[MAX_FILES];
+	while (fgets(files[total_files], 80, fp)) {
 		total_files++;
-
+		if(total_files >= MAX_FILES) {
+			printf("Too Many Files specified in \"files.txt\"");
+			break;
+		}
+	}
 
 	for(u32 i = 0; i < total_files; i++) {
 
@@ -663,9 +668,12 @@ int main() {
 			files[i][index-1] = '\0';
 		}
 
-		if(!OpenJPEGFile(files[i])) {
-			printf(">> [FAILED]: Failed To Open %s\n", files[i]);
-		}
+		files_opened[i] = OpenJPEGFile(files[i]);
+	}
+
+	for(u32 i = 0; i < total_files; i++){
+		char x = files_opened[i] ? 'X' : ' ';
+		printf("%-80s [%c]\n", files[i], x);
 	}
 
 	getchar();
@@ -679,7 +687,7 @@ bool OpenJPEGFile(const char* file) {
 	u64 file_size;
 	u8* buffer = OpenFile(file, &file_size);
 	if(!buffer) {
-		printf("Couldn't find %s\n", file);
+		printf("Couldn't find \"%s\"\n", file);
 		return false;
 	}
 
@@ -694,7 +702,7 @@ bool OpenJPEGFile(const char* file) {
 	u8 huffmanTableCount = 0;
 	bool progressive = false;
 
-	Table* huffman_tables[2][2] = {{nullptr, nullptr}, {nullptr, nullptr}};
+	Table* huffman_tables[2][4] = {{nullptr, nullptr}, {nullptr, nullptr}};
 	u8 data[QT_NUM_TABLES * 64];
 	u8* qt_tables[QT_NUM_TABLES];	// chrominance and luminance quantization tables;
 	memset(data, NULL, 64 * QT_NUM_TABLES);		// TODO: REMOVE
@@ -741,11 +749,13 @@ bool OpenJPEGFile(const char* file) {
 					break;
 				}
 				// NOTE: read components. I think?
+				u32 sample_sum = 0;
 				for(int i = 0; i < components; i++){
 					u8 id = (u8)NextBytes(s_buffer, 1);
 					u8 sample_factor = (u8)NextBytes(s_buffer, 1);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
+					sample_sum += h_sample_factor * v_sample_factor;
 					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
 					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
 					ASSERT((v_sample_factor * h_sample_factor) <= 10)
@@ -767,6 +777,9 @@ bool OpenJPEGFile(const char* file) {
 					}
 
 				}
+				if (components > 1) {
+					ASSERT(sample_sum <= 10)
+				}
 				break;
 
 			}
@@ -785,7 +798,7 @@ bool OpenJPEGFile(const char* file) {
 					u8 huff_dst_id = huffman_info & 0x0F;				// NOTE: 0 for Y 1 for Cb/Cr
 					u8 is_ac =  (huffman_info >> 4) & 1;				// NOTE: 0 == for dc huffman tables, 1 == ac		
 					printf("Huffman Table IDX: %hhu,  is AC: %d\n", huff_dst_id, is_ac);	
-					ASSERT(huff_dst_id == 0 || huff_dst_id == 1)
+					ASSERT(huff_dst_id < 4)
 
 					// BITS
 					u8 i_count;
@@ -817,7 +830,7 @@ bool OpenJPEGFile(const char* file) {
 						// printf(" ]\n");
 					}
 					
-					huffman_tables[huff_dst_id][is_ac] = CreateHuffmanTable(code_counts, huffman_bytes);
+					huffman_tables[is_ac][huff_dst_id] = CreateHuffmanTable(code_counts, huffman_bytes);
 				}
 				ASSERT(s_buffer - data_start == length);
 				break;
@@ -935,7 +948,7 @@ bool OpenJPEGFile(const char* file) {
 
 						// printf("COMPONENT: %hhu\n", c);
 						{
-							Table* root = huffman_tables[table_idx][0];		// DC table
+							Table* root = huffman_tables[0][table_idx];		// DC table
 							ASSERT( bit < scan_count * 8)
 							u64 vc = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(vc < 16);
@@ -956,14 +969,27 @@ bool OpenJPEGFile(const char* file) {
 						int ac;
 						for(ac = 0; ac < 63; ac++){
 							// Read AC Values
-							Table* root = huffman_tables[table_idx][1];	// AC table
+							Table* root = huffman_tables[1][table_idx];	// AC table
 							ASSERT( bit < scan_count * 8)
 							u64 ac_info = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(ac_info <= 0xff);
 
 							u8 zrl = (ac_info >> 4) & 0x0F;
 							u8 vc = ac_info & 0x0F; 
-							if( vc != 0){
+
+							if( vc == 0) {
+								if ( zrl == 0x0) {
+									// EOB
+									// printf("AC[%2d] == EOB\n", ac);
+									break;
+								} else if (zrl == 0x0F) {
+									// printf("AC[%2d ... %2d] == 0\n", ac, ac+zrl+1);
+									ASSERT((ac + zrl) <= 63)
+									ac += zrl;	// +16
+								} else {
+									ASSERT(false)
+								}
+							} else  {
 								ASSERT( bit < scan_count * 8)
 								i16 value = (i16)GetBits(scan_data, bit, vc);
 								bit += vc;
@@ -975,19 +1001,9 @@ bool OpenJPEGFile(const char* file) {
 								ASSERT((ac + zrl) <= 63)
 								block[ac + 1] = value * qt_tables[table_idx][ac + 1];
 								ac += zrl;
-							} else {
-								if( zrl == 0x0F ) {
-									// printf("AC[%2d ... %2d] == 0\n", ac, ac+zrl+1);
-									ASSERT((ac + zrl) <= 63)
-									ac += zrl;	// +16
-									continue;
-								} else {
-									ASSERT(zrl == 0);
-									// printf("AC[%2d] == EOB\n", ac);
-									break;
-								}
 							}
 						}
+						ASSERT(ac <= 63)
 						for (int x = 0; x < 8; x++){
 							// printf("[");
 							for(int y = 0; y < 8; y++) {
@@ -1129,7 +1145,7 @@ bool OpenJPEGFile(const char* file) {
 
 						// Print Tag
 						const char* tag_name = GetTagNameFromId(entry->TagId);
-						printf("Tag Found: %2d == %s\n", entry->TagId, tag_name);
+						printf("Tag Found: %2d == \"%s\"\n", entry->TagId, tag_name);
 
 						if(entry->TagId == 256) {
 							ASSERT(entry->DataType == 3 || entry->DataType == 4);

@@ -1,7 +1,1 @@
-../assets/example1.jpg
-../assets/example2.jpg
-../assets/example3.jpg
-../assets/example4.jpg
-../assets/example5.jpg
-../assets/example6.jpg
 ../assets/example7.jpg

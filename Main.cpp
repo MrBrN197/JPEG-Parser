@@ -696,9 +696,10 @@ bool OpenJPEGFile(const char* file) {
 	u16 SOI = (u16)NextBytes(s_buffer, 2);
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
-	u16 components;
-	u32 imageWidth;
-	u32 imageHeight;
+	bool components[255] = {false};
+	u8 numComponents = 0; 
+	u32 imageWidth = 0;
+	u32 imageHeight = 0;
 	u8 huffmanTableCount = 0;
 	bool progressive = false;
 
@@ -734,24 +735,18 @@ bool OpenJPEGFile(const char* file) {
 				imageWidth = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				ASSERT(imageWidth > 0 && imageHeight > 0)
 				printf("Width: %d Height: %d \n", imageWidth, imageHeight);
-				components = (u8)NextBytes(s_buffer, 1);	// Set number of components
-				ASSERT(components == 3)		// NOTE: 3 components for now
-				// ASSERT(components == 1 || components == 3);	// Grayscale or YCbCr
-				switch (components)
-				{
-				case 1:
-					printf("Grayscale\n");
-					break;
-				case 3:
-					printf("YUV\n");
-					break;
-				default:
-					break;
+				numComponents = (u8)NextBytes(s_buffer, 1);	// Get number of components
+				ASSERT(numComponents == 3)		// TODO: 3 components for now
+				// ASSERT(numComponents == 1 || numComponents == 3);	// Grayscale or YCbCr
+				if (numComponents == 1) {
+					printf("No Grayscale Support\n");
+					return false;
 				}
-				// NOTE: read components. I think?
+
 				u32 sample_sum = 0;
-				for(int i = 0; i < components; i++){
+				for(int i = 0; i < numComponents; i++){
 					u8 id = (u8)NextBytes(s_buffer, 1);
+					components[id] = true;
 					u8 sample_factor = (u8)NextBytes(s_buffer, 1);
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
@@ -777,7 +772,7 @@ bool OpenJPEGFile(const char* file) {
 					}
 
 				}
-				if (components > 1) {
+				if (numComponents > 1) {
 					ASSERT(sample_sum <= 10)
 				}
 				break;
@@ -854,7 +849,7 @@ bool OpenJPEGFile(const char* file) {
 					ASSERT(qt_num < QT_NUM_TABLES);
 					u8* qt_table_data = qt_tables[qt_num];
 					u32 numBytes = 64 * (qt_prec+1);
-					for(int j = 0; j < 64; j++){
+					for(u32 j = 0; j < numBytes; j++){
 						u8 value = (u8)NextBytes(s_buffer, 1);
 						*qt_table_data++ = value;
 					}
@@ -890,25 +885,32 @@ bool OpenJPEGFile(const char* file) {
 				printf("\n\n------------------- Start Of Scan -------------------\n");
 				u16 length = ((u8)NextBytes(s_buffer, 1) << 8) | (u8)NextBytes(s_buffer, 1);
 				u16 numScanComponents = (u8)NextBytes(s_buffer, 1);
-				ASSERT(numScanComponents == components)		// NOTE: ??
-				ASSERT(length == 6+2*components);	// NOTE: must equal 6+2*components
-				// ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
+				ASSERT(numScanComponents >= 1 && numScanComponents <= 4);
+				ASSERT(numScanComponents == numComponents)		// NOTE: ??
+				ASSERT(length == 6+2*numScanComponents);	// NOTE: must equal 6+2*components
 				ASSERT(numScanComponents == 3)		// TODO: can be >= 1 and <= 4
-
-				u32 comp_tables[3][2] = {};
+				u32 comp_tables[4][2] = {0xFF};		// NOTE: initialize to invalid value
+				u32 comp_order[4] = {};
+				bool comp_order_set[4] = {false};
+				ASSERT(numScanComponents == 3)
+				const char* componentNames[4] = {"", "Y", "Cb", "Cr"};		// NOTE: Probably not always correct
 				for(int i = 0; i < numScanComponents; i++){
 					u8 id = (u8)NextBytes(s_buffer, 1);
-					ASSERT(id == i + 1);	// NOTE: ??
+					ASSERT(components[id])
+					comp_order[i] = id;
+					comp_order_set[id] = true;
 
 					u8 huffman_table = (u8)NextBytes(s_buffer, 1);	// DC and AC Huffman table
 					u8 ac = huffman_table & 0x0F;
 					u8 dc = huffman_table >> 4;
-					ASSERT(ac < 2 && dc < 2);
-					comp_tables[i][0] = dc;
-					comp_tables[i][1] = ac;
-					printf("Component ID: %d | DC: %d AC: %d\n", id, dc , ac);
+					ASSERT(ac < 4 && dc < 4);	// NOTE 0-3 for extended DCT
+					comp_tables[id][0] = dc;
+					comp_tables[id][1] = ac;
+					ASSERT(id < 4)
+					// printf("%s\n", componentNames[id]);
+					printf("Component %d ID: [%2s] | DC: %d AC: %d\n", id, componentNames[id], dc, ac);
 				}
-				s_buffer += 3;	// Skip 3 Unused Bytes
+				s_buffer += 3;	// TODO: Start of spectral selection, End of spectral selection, point transform
 				// TODO: Scan Data non-progressive image
 				constexpr u32 MAX_SCAN_DATA = MegaBytes(12);
 				u8* scan_data = new u8[MAX_SCAN_DATA];
@@ -939,16 +941,19 @@ bool OpenJPEGFile(const char* file) {
 				for(u32 mcu = 0; mcu < numMcuBlocks; mcu++){
 					// printf("\n\nImage Block: %d\n", mcu);
 					for(u8 c = 0; c < numScanComponents; c++) {
-						u8 dc_table = comp_tables[c][0];
-						u8 ac_table = comp_tables[c][1];
+						u8 comp_id = comp_order[c]; 
+						ASSERT(comp_order_set[comp_id])
+						u8 dc_table = comp_tables[comp_id][0];
+						u8 ac_table = comp_tables[comp_id][1];
 						u8 table_idx = (c == 0) ? 0 : 1;
 
 						i16 block[64] = {};
 						memset(block, 0, sizeof(i16) * 64);
 
-						// printf("COMPONENT: %hhu\n", c);
+						ASSERT(numScanComponents == 3)
+						printf("COMPONENT: %s\n", componentNames[comp_id]);
 						{
-							Table* root = huffman_tables[0][table_idx];		// DC table
+							Table* root = huffman_tables[0][dc_table];		// DC table
 							ASSERT( bit < scan_count * 8)
 							u64 vc = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(vc < 16);
@@ -969,7 +974,7 @@ bool OpenJPEGFile(const char* file) {
 						int ac;
 						for(ac = 0; ac < 63; ac++){
 							// Read AC Values
-							Table* root = huffman_tables[1][table_idx];	// AC table
+							Table* root = huffman_tables[1][ac_table];	// AC table
 							ASSERT( bit < scan_count * 8)
 							u64 ac_info = GetHuffmanValue(root, scan_data, bit);
 							ASSERT(ac_info <= 0xff);
@@ -1005,12 +1010,12 @@ bool OpenJPEGFile(const char* file) {
 						}
 						ASSERT(ac <= 63)
 						for (int x = 0; x < 8; x++){
-							// printf("[");
+							printf("[");
 							for(int y = 0; y < 8; y++) {
 								i16 value = block[(x * 8) + y];
-								// printf(" %4hd,", value);
+								printf(" %4hd,", value);
 							}
-							// printf(" ]\n");
+							printf(" ]\n");
 						}
 						// printf("Finished at %d\n", ac);
 					}

@@ -657,12 +657,8 @@ int main() {
 	u32 total_files = 0;
 	char files[MAX_FILES][80]; 
 	bool files_opened[MAX_FILES];
-	while (fgets(files[total_files], 80, fp)) {
+	while (fgets(files[total_files], 80, fp) && total_files < MAX_FILES) {
 		total_files++;
-		if(total_files >= MAX_FILES) {
-			printf("Too Many Files specified in \"files.txt\"");
-			break;
-		}
 	}
 
 	for(u32 i = 0; i < total_files; i++) {
@@ -672,6 +668,7 @@ int main() {
 			files[i][index-1] = '\0';
 		}
 
+		printf("Opening File: \"%s\"\n", files[i]);
 		files_opened[i] = OpenJPEGFile(files[i]);
 	}
 
@@ -701,6 +698,7 @@ bool OpenJPEGFile(const char* file) {
 	ASSERT(SOI == 0xD8FF)	// SOI Start Of Image
 
 	bool components[255] = {false};
+	u8 comp_qt_table[255] = {0};
 	u8 numComponents = 0; 
 	u32 imageWidth = 0;
 	u32 imageHeight = 0;
@@ -755,10 +753,15 @@ bool OpenJPEGFile(const char* file) {
 					u8 v_sample_factor = sample_factor & ((1 << 4) - 1);	// lower 4 bits = vertical
 					u8 h_sample_factor = sample_factor >> 4;				// higher 4 bits = horizantal
 					sample_sum += h_sample_factor * v_sample_factor;
+					if(v_sample_factor != 1 || h_sample_factor != 1) {
+						printf("No Sub Sampling Support\n");
+						return false;
+					}
 					ASSERT(v_sample_factor >= 1 && v_sample_factor <= 4)
 					ASSERT(h_sample_factor >= 1 && h_sample_factor <= 4)
 					ASSERT((v_sample_factor * h_sample_factor) <= 10)
 					u8 qt_table_number = NextByte(s_buffer);
+					comp_qt_table[id]= qt_table_number;
 					ASSERT(qt_table_number >= 0 && qt_table_number <= 3)
 					switch (id)
 					{
@@ -855,19 +858,20 @@ bool OpenJPEGFile(const char* file) {
 					u32 numBytes = 64 * (qt_prec+1);
 					for(u32 j = 0; j < numBytes; j++){
 						u8 value = NextByte(s_buffer);
+						ASSERT(value != 0)
 						*qt_table_data++ = value;
 					}
-				}
 
-				printf("QT ========== %d\n", qt_num);
-				u8* current_table = qt_tables[qt_num];
-				for(int x = 0; x < 8; x++){
-					printf("[");
-					for(int y = 0; y < 8; y++){
-						u8 value = *current_table++;
-						printf(" %3d ", value);
+					printf("QT ========== %d\n", qt_num);
+					u8* current_table = qt_tables[qt_num];
+					for(int x = 0; x < 8; x++){
+						printf("[");
+						for(int y = 0; y < 8; y++){
+							u8 value = *current_table++;
+							printf(" %3d ", value);
+						}
+						printf("]\n");
 					}
-					printf("]\n");
 				}
 
 				break;
@@ -941,18 +945,20 @@ bool OpenJPEGFile(const char* file) {
 
 				u32 bit = 0;
 				u32 numMcuBlocks = ((imageWidth + 7u)/ 8u) * ((imageHeight + 7u) / 8u);
-				i16 prevDCValues[3] = {0, 0, 0};
+				i16 prevDCValues[4] = {0};
 				for(u32 mcu = 0; mcu < numMcuBlocks; mcu++){
+					printf("--------------- MCU: [ %08d] ------------------\n", mcu);
 					// printf("\n\nImage Block: %d\n", mcu);
+					i16 block[4][64] = {};
+					memset(block[0], 0, sizeof(i16) * 64);
+					memset(block[1], 0, sizeof(i16) * 64);
+					memset(block[2], 0, sizeof(i16) * 64);
+					memset(block[3], 0, sizeof(i16) * 64);
 					for(u8 c = 0; c < numScanComponents; c++) {
 						u8 comp_id = comp_order[c]; 
 						ASSERT(comp_order_set[comp_id])
 						u8 dc_table = comp_tables[comp_id][0];
 						u8 ac_table = comp_tables[comp_id][1];
-						u8 table_idx = (c == 0) ? 0 : 1;
-
-						i16 block[64] = {};
-						memset(block, 0, sizeof(i16) * 64);
 
 						ASSERT(numScanComponents == 3)
 						printf("COMPONENT: %s\n", componentNames[comp_id]);
@@ -967,12 +973,13 @@ bool OpenJPEGFile(const char* file) {
 								bit += (u8)vc;
 								ASSERT( bit < scan_count * 8)
  								value = DecodeValueCategory(value, (u8)vc);		// NOTE: delta-encoded value
-								prevDCValues[c] += value;
-								// printf("DC Coff: %hd\n", prevDCValues[c]);
+								ASSERT(comp_id <= 3)
+								prevDCValues[comp_id] += value;
+								// printf("DC Coff: %hd\n", prevDCValues[comp_id]);
 							} else {
 								// printf("DC Coff: EOB\n");
 							}
-							block[0] = prevDCValues[c] * qt_tables[table_idx][0];
+							block[comp_id][0] = prevDCValues[comp_id] * qt_tables[comp_qt_table[comp_id]][0];;
 						}
 
 						int ac;
@@ -1008,21 +1015,22 @@ bool OpenJPEGFile(const char* file) {
 								}
 								// printf("AC[%2d] == %hd\n", ac, value);
 								ASSERT((ac + zrl) <= 63)
-								block[ac + 1] = value * qt_tables[table_idx][ac + 1];
+								block[comp_id][ac + 1] = value * qt_tables[comp_qt_table[comp_id]][ac + 1];
 								ac += zrl;
 							}
 						}
 						ASSERT(ac <= 63)
-						for (int x = 0; x < 8; x++){
+						for(int y = 0; y < 8; y++) {
 							printf("[");
-							for(int y = 0; y < 8; y++) {
-								i16 value = block[(x * 8) + y];
+							for(int x = 0; x < 8; x++) {
+								i16 value = block[comp_id][(y * 8) + x];
 								printf(" %4hd,", value);
 							}
 							printf(" ]\n");
 						}
 						// printf("Finished at %d\n", ac);
 					}
+					printf("\n\n");
 				}
 				// ASSERT(false)
 				break;

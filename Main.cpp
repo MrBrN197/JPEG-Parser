@@ -946,9 +946,12 @@ bool OpenJPEGFile(const char* file) {
 				u32 bit = 0;
 				u32 numMcuBlocks = ((imageWidth + 7u)/ 8u) * ((imageHeight + 7u) / 8u);
 				i16 prevDCValues[4] = {0};
+				u8* dc_only_image = new u8[numMcuBlocks];
+				memset(dc_only_image, 0, sizeof(u8) * numMcuBlocks);
+				u32 dc_only_idx = 0;
 				for(u32 mcu = 0; mcu < numMcuBlocks; mcu++){
 					printf("--------------- MCU: [ %08d] ------------------\n", mcu);
-					// printf("\n\nImage Block: %d\n", mcu);
+					
 					i16 block[4][64] = {};
 					memset(block[0], 0, sizeof(i16) * 64);
 					memset(block[1], 0, sizeof(i16) * 64);
@@ -1028,10 +1031,55 @@ bool OpenJPEGFile(const char* file) {
 							}
 							printf(" ]\n");
 						}
+
+						// IDCT
+						u8 zig_zag[64] = {		// returns index in zig_zag order
+							0, 1, 5, 6, 14, 15, 27, 28,
+							2, 4, 7, 13, 16, 26, 29, 42, 
+							3, 8, 12, 17, 25, 30, 41, 43,
+							9, 11, 18, 24, 31, 40, 44, 53,
+							10, 19, 23, 32, 39, 45, 52, 54,
+							20, 22, 33, 38, 46, 51, 55, 60,
+							21, 34, 37, 47, 50, 56, 59, 61,
+							35, 36, 48, 49, 57, 58, 62, 63
+						};
+
+						if(comp_id == 1) {		// Luminance Only
+							float x = 0; float y = 0;	// compute only top-left pixel value
+							float inv = 1.f / sqrtf(2.0f); 
+							float s_yx = 0;								
+							constexpr float PI = 3.141592653589793f;
+							for(int v = 0; v < 8; v++) {
+								for(int u = 0; u < 8; u++) { 
+									float cv = (v == 0) ? 1 / sqrtf(2.f) : 1.0f;
+									float cu = (u == 0) ? 1 / sqrtf(2.f) : 1.0f;
+									float cx = cosf((2 * x + 1.f) * u * PI / 16.f );
+									float cy = cosf((2 * y + 1.f) * v * PI / 16.f );
+									int z_idx = v * 8 + u;
+									float s_vu = block[comp_id][zig_zag[z_idx]];
+									s_yx += cu * cv * s_vu * cx * cy;
+								}
+							}
+							s_yx *= 0.25;
+
+							// Level Shift
+							s_yx += 128;
+							printf("Pixel Value: %6f\n", s_yx);
+							ASSERT(s_yx >= 0 && s_yx < 255)		// NOTE: ??
+
+							*(dc_only_image + dc_only_idx++) = (u8)fmaxf(0.f, fminf(255.f, s_yx));
+						}
 						// printf("Finished at %d\n", ac);
 					}
 					printf("\n\n");
 				}
+
+				u32 width_blocks =  ((imageWidth + 7u)/ 8u);
+				u32 height_blocks =  ((imageHeight + 7u)/ 8u);
+				ASSERT((width_blocks * height_blocks) == dc_only_idx)
+
+				// TODO: save dc_only_image to other format
+				printf("Width Blocks %d Height Blocks: %d\n", width_blocks, height_blocks);
 				// ASSERT(false)
 				break;
 			}
